@@ -33,62 +33,112 @@ class DBService:
         Returns:
             添加的论文ID列表
         """
+        if not papers:
+            return []
+            
         added_ids = []
         async for db in get_async_db():
-            for paper in papers:
-                # 检查论文是否已存在
-                result = await db.execute(
-                    select(DBPaper).where(DBPaper.paper_id == paper.paper_id)
-                )
-                existing_paper = result.scalars().first()
+            try:
+                # 收集所有作者和分类名称
+                all_author_names = set()
+                all_category_names = set()
                 
-                if existing_paper:
-                    continue
+                papers_to_add = []
                 
-                # 创建新的论文对象
-                db_paper = DBPaper(
-                    paper_id=paper.paper_id,
-                    title=paper.title,
-                    abstract=paper.abstract,
-                    pdf_url=paper.pdf_url,
-                    published_date=paper.published_date,
-                    updated_date=paper.updated_date
-                )
-                
-                # 处理作者
-                for author_name in paper.authors:
-                    # 检查作者是否已存在
+                # 首先检查哪些论文需要添加，并收集所有作者和分类
+                for paper in papers:
+                    # 检查论文是否已存在
                     result = await db.execute(
-                        select(DBAuthor).where(DBAuthor.name == author_name)
+                        select(DBPaper).where(DBPaper.paper_id == paper.paper_id)
                     )
-                    author = result.scalars().first()
+                    existing_paper = result.scalars().first()
                     
-                    if not author:
-                        author = DBAuthor(name=author_name)
-                        db.add(author)
+                    if existing_paper:
+                        continue
                     
-                    db_paper.authors.append(author)
+                    # 收集作者和分类名称
+                    all_author_names.update(paper.authors)
+                    all_category_names.update(paper.categories)
+                    papers_to_add.append(paper)
                 
-                # 处理分类
-                for category_name in paper.categories:
-                    # 检查分类是否已存在
+                if not papers_to_add:
+                    return []
+                
+                # 一次性查询所有已存在的作者和分类
+                existing_authors = {}
+                if all_author_names:
                     result = await db.execute(
-                        select(DBCategory).where(DBCategory.name == category_name)
+                        select(DBAuthor).where(DBAuthor.name.in_(all_author_names))
                     )
-                    category = result.scalars().first()
-                    
-                    if not category:
-                        category = DBCategory(name=category_name)
-                        db.add(category)
-                    
-                    db_paper.categories.append(category)
+                    for author in result.scalars().all():
+                        existing_authors[author.name] = author
                 
-                db.add(db_paper)
-                added_ids.append(paper.paper_id)
-            
-            if added_ids:
+                existing_categories = {}
+                if all_category_names:
+                    result = await db.execute(
+                        select(DBCategory).where(DBCategory.name.in_(all_category_names))
+                    )
+                    for category in result.scalars().all():
+                        existing_categories[category.name] = category
+                
+                # 一次性创建不存在的作者和分类
+                authors_to_create = all_author_names - existing_authors.keys()
+                if authors_to_create:
+                    # 使用VALUES子句一次性插入多个作者
+                    author_objects = [DBAuthor(name=name) for name in authors_to_create]
+                    db.add_all(author_objects)
+                    # 立即提交作者数据，避免后续插入时的冲突
+                    await db.flush()
+                    
+                    # 再次查询获取所有作者，包括新创建的
+                    result = await db.execute(
+                        select(DBAuthor).where(DBAuthor.name.in_(all_author_names))
+                    )
+                    for author in result.scalars().all():
+                        existing_authors[author.name] = author
+                
+                categories_to_create = all_category_names - existing_categories.keys()
+                if categories_to_create:
+                    category_objects = [DBCategory(name=name) for name in categories_to_create]
+                    db.add_all(category_objects)
+                    await db.flush()
+                    
+                    # 再次查询获取所有分类，包括新创建的
+                    result = await db.execute(
+                        select(DBCategory).where(DBCategory.name.in_(all_category_names))
+                    )
+                    for category in result.scalars().all():
+                        existing_categories[category.name] = category
+                
+                # 现在添加论文及其关联
+                for paper in papers_to_add:
+                    db_paper = DBPaper(
+                        paper_id=paper.paper_id,
+                        title=paper.title,
+                        abstract=paper.abstract,
+                        pdf_url=paper.pdf_url,
+                        published_date=paper.published_date,
+                        updated_date=paper.updated_date
+                    )
+                    
+                    # 添加作者关联
+                    for author_name in paper.authors:
+                        db_paper.authors.append(existing_authors[author_name])
+                    
+                    # 添加分类关联
+                    for category_name in paper.categories:
+                        db_paper.categories.append(existing_categories[category_name])
+                    
+                    db.add(db_paper)
+                    added_ids.append(paper.paper_id)
+                
                 await db.commit()
                 logger.info(f"添加了 {len(added_ids)} 篇论文到数据库")
+                
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"添加论文失败: {e}")
+                raise
             
         return added_ids
     

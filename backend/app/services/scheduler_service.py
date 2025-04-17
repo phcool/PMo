@@ -27,6 +27,7 @@ class SchedulerService:
         self.scheduler = AsyncIOScheduler()
         self.is_running = False
         self.last_run_time = None
+        self.last_analysis_time = None
         
         # 扩展默认类别，包含所有计算机科学和深度学习相关方向
         self.default_categories = [
@@ -65,6 +66,7 @@ class SchedulerService:
         
         # 从环境变量获取配置
         self.cron_schedule = os.getenv("PAPER_FETCH_SCHEDULE", "0 */8 * * *")  # 默认每8小时
+        self.analysis_schedule = os.getenv("PAPER_ANALYSIS_SCHEDULE", "30 */8 * * *")  # 默认每8小时，但在获取后30分钟执行
         
     async def fetch_papers_task(self):
         """定时获取论文的任务"""
@@ -92,18 +94,29 @@ class SchedulerService:
                 
             logger.info(f"定时任务获取了 {len(papers)} 篇论文，添加了 {len(added_ids)} 篇新论文")
             
-            # 如果有新论文，启动分析任务
-            if added_ids:
-                # 等待5秒，确保数据库操作完成
-                await asyncio.sleep(5)
-                try:
-                    analysis_result = await paper_analysis_service.start_analysis_task()
-                    logger.info(f"启动论文分析任务: {analysis_result}")
-                except Exception as e:
-                    logger.error(f"启动论文分析任务失败: {e}")
+            # 注意：此处不再自动启动分析任务
+            # 分析任务由独立的定时任务处理
         
         except Exception as e:
             logger.error(f"定时获取论文任务失败: {e}")
+    
+    async def analyze_papers_task(self):
+        """定时分析论文的任务"""
+        try:
+            logger.info("开始定时分析论文任务")
+            self.last_analysis_time = datetime.now()
+            
+            # 如果正在分析，则跳过
+            if paper_analysis_service.is_analyzing:
+                logger.info("已有分析任务正在进行中，跳过本次执行")
+                return
+                
+            # 启动新的分析任务
+            analysis_result = await paper_analysis_service.start_analysis_task()
+            logger.info(f"启动论文分析任务: {analysis_result}")
+            
+        except Exception as e:
+            logger.error(f"定时分析论文任务失败: {e}")
     
     def start(self):
         """启动定时任务"""
@@ -111,11 +124,19 @@ class SchedulerService:
             logger.warning("定时任务已经在运行中")
             return
             
-        # 添加定时任务，使用cron表达式
+        # 添加获取论文的定时任务
         self.scheduler.add_job(
             self.fetch_papers_task,
             CronTrigger.from_crontab(self.cron_schedule),
             id="fetch_papers_job",
+            replace_existing=True
+        )
+        
+        # 添加分析论文的定时任务
+        self.scheduler.add_job(
+            self.analyze_papers_task,
+            CronTrigger.from_crontab(self.analysis_schedule),
+            id="analyze_papers_job",
             replace_existing=True
         )
         
@@ -129,7 +150,7 @@ class SchedulerService:
         
         self.scheduler.start()
         self.is_running = True
-        logger.info(f"论文定时获取服务已启动，调度计划: {self.cron_schedule}")
+        logger.info(f"论文定时服务已启动，获取计划: {self.cron_schedule}, 分析计划: {self.analysis_schedule}")
     
     def stop(self):
         """停止定时任务"""
@@ -138,7 +159,7 @@ class SchedulerService:
             
         self.scheduler.shutdown()
         self.is_running = False
-        logger.info("论文定时获取服务已停止")
+        logger.info("论文定时服务已停止")
     
     async def manual_fetch(self, categories: Optional[List[str]] = None, max_results: int = 50) -> dict:
         """
@@ -179,16 +200,8 @@ class SchedulerService:
                 "timestamp": datetime.now().isoformat()
             }
             
-            # 如果有新论文，启动分析任务
-            if added_ids:
-                # 等待5秒，确保数据库操作完成
-                await asyncio.sleep(5)
-                try:
-                    analysis_result = await paper_analysis_service.start_analysis_task()
-                    result["analysis_task"] = analysis_result
-                except Exception as e:
-                    logger.error(f"启动论文分析任务失败: {e}")
-                    result["analysis_task"] = {"status": "error", "message": f"启动分析任务失败: {str(e)}"}
+            # 注意：此处不再自动启动分析任务
+            # 分析任务由独立的定时任务或手动触发处理
             
             return result
             
@@ -201,13 +214,41 @@ class SchedulerService:
                 "timestamp": datetime.now().isoformat()
             }
     
+    async def manual_analyze(self) -> dict:
+        """
+        手动触发论文分析
+        
+        Returns:
+            包含分析结果的字典
+        """
+        try:
+            if paper_analysis_service.is_analyzing:
+                return {
+                    "status": "in_progress",
+                    "message": "已有分析任务正在进行中"
+                }
+                
+            # 启动分析任务
+            result = await paper_analysis_service.start_analysis_task()
+            return result
+            
+        except Exception as e:
+            logger.error(f"手动启动论文分析失败: {e}")
+            return {
+                "status": "error",
+                "message": f"启动论文分析失败: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+    
     @property
     def status(self) -> dict:
         """获取定时任务状态"""
         return {
             "is_running": self.is_running,
-            "last_run_time": self.last_run_time.isoformat() if self.last_run_time else None,
-            "schedule": self.cron_schedule,
+            "last_fetch_time": self.last_run_time.isoformat() if self.last_run_time else None,
+            "last_analysis_time": self.last_analysis_time.isoformat() if self.last_analysis_time else None,
+            "fetch_schedule": self.cron_schedule,
+            "analysis_schedule": self.analysis_schedule,
             "default_categories": self.default_categories
         }
 

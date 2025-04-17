@@ -12,6 +12,21 @@ class ArxivService:
     """Service for fetching papers from arXiv"""
     
     @staticmethod
+    def _remove_timezone(dt):
+        """
+        移除日期时间对象的时区信息
+        
+        Args:
+            dt: 带时区的日期时间对象
+            
+        Returns:
+            不带时区的日期时间对象
+        """
+        if dt and dt.tzinfo:
+            return dt.replace(tzinfo=None)
+        return dt
+    
+    @staticmethod
     async def fetch_recent_papers(
         categories: List[str], 
         max_results: int = 100
@@ -45,6 +60,10 @@ class ArxivService:
             # Convert to Paper objects
             papers = []
             for result in results:
+                # 处理日期时间，移除时区信息
+                published_date = ArxivService._remove_timezone(result.published)
+                updated_date = ArxivService._remove_timezone(result.updated)
+                
                 paper = Paper(
                     paper_id=result.get_short_id(),
                     title=result.title,
@@ -52,17 +71,17 @@ class ArxivService:
                     abstract=result.summary,
                     categories=result.categories,
                     pdf_url=result.pdf_url,
-                    published_date=result.published,
-                    updated_date=result.updated,
+                    published_date=published_date,
+                    updated_date=updated_date,
                     embedding=None  # Embeddings will be added later
                 )
                 papers.append(paper)
                 
-            logger.info(f"Fetched {len(papers)} papers from arXiv")
+            logger.info(f"已从arXiv获取 {len(papers)} 篇论文")
             return papers
             
         except Exception as e:
-            logger.error(f"Error fetching papers from arXiv: {e}")
+            logger.error(f"从arXiv获取论文时出错: {e}")
             raise
             
     @staticmethod
@@ -88,6 +107,10 @@ class ArxivService:
                 return None
                 
             result = results[0]
+            # 处理日期时间，移除时区信息
+            published_date = ArxivService._remove_timezone(result.published)
+            updated_date = ArxivService._remove_timezone(result.updated)
+            
             paper = Paper(
                 paper_id=result.get_short_id(),
                 title=result.title,
@@ -95,13 +118,13 @@ class ArxivService:
                 abstract=result.summary,
                 categories=result.categories,
                 pdf_url=result.pdf_url,
-                published_date=result.published,
-                updated_date=result.updated,
+                published_date=published_date,
+                updated_date=updated_date,
                 embedding=None
             )
             
             return paper
             
         except Exception as e:
-            logger.error(f"Error fetching paper {paper_id} from arXiv: {e}")
+            logger.error(f"获取论文 {paper_id} 时出错: {e}")
             return None 

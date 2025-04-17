@@ -2,7 +2,7 @@
 """
 手动获取论文脚本
 使用方法:
-    python scripts/fetch_papers.py [--categories cs.LG cs.AI cs.CV] [--max-results 50]
+    python scripts/fetch_papers.py [--categories cs.LG cs.AI cs.CV] [--max-results 50] [--analyze]
 """
 
 import asyncio
@@ -22,13 +22,14 @@ load_dotenv()
 from app.services.scheduler_service import scheduler_service
 
 
-async def fetch_papers(categories=None, max_results=50):
+async def fetch_papers(categories=None, max_results=50, analyze=False):
     """
     手动获取论文
     
     Args:
         categories: 要获取的论文类别，默认使用配置中的默认类别
         max_results: 最大获取论文数量
+        analyze: 获取后是否立即分析论文
     """
     print(f"开始获取论文，时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
@@ -50,6 +51,20 @@ async def fetch_papers(categories=None, max_results=50):
             print(f"完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             if result.get("message"):
                 print(f"详细信息: {result['message']}")
+            
+            # 如果指定了分析选项且有新论文，则启动分析
+            if analyze and result.get("count", 0) > 0:
+                print("\n开始分析新获取的论文...")
+                analysis_result = await scheduler_service.manual_analyze()
+                
+                if analysis_result["status"] == "started":
+                    print("✅ 论文分析任务已启动!")
+                    print(f"开始时间: {analysis_result.get('timestamp', datetime.now().isoformat())}")
+                elif analysis_result["status"] == "in_progress":
+                    print("⚠️ 已有分析任务正在进行中，未启动新任务。")
+                else:
+                    print(f"⚠️ 分析任务状态: {analysis_result.get('status')}")
+                    print(f"详细信息: {analysis_result.get('message', '无详细信息')}")
         else:
             print("\n❌ 获取失败!")
             print(f"错误信息: {result.get('message', '未知错误')}")
@@ -78,12 +93,19 @@ def main():
         help="最大获取论文数量，默认50"
     )
     
+    parser.add_argument(
+        "--analyze",
+        action="store_true",
+        help="获取后立即分析新论文"
+    )
+    
     args = parser.parse_args()
     
     # 执行异步函数
     asyncio.run(fetch_papers(
         categories=args.categories,
-        max_results=args.max_results
+        max_results=args.max_results,
+        analyze=args.analyze
     ))
 
 

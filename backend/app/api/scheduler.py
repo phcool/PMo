@@ -11,7 +11,7 @@ router = APIRouter()
 @router.get("/status")
 async def get_scheduler_status():
     """
-    获取论文获取定时任务的状态
+    获取论文获取与分析定时任务的状态
     """
     return scheduler_service.status
 
@@ -26,14 +26,22 @@ async def manual_fetch_papers(
     result = await scheduler_service.manual_fetch(categories=categories, max_results=max_results)
     return result
 
+@router.post("/analyze")
+async def manual_analyze_papers():
+    """
+    手动触发论文分析任务
+    """
+    result = await scheduler_service.manual_analyze()
+    return result
+
 @router.post("/start")
 async def start_scheduler():
     """
-    启动论文获取定时任务
+    启动论文获取与分析定时任务
     """
     try:
         scheduler_service.start()
-        return {"status": "success", "message": "论文获取定时任务已启动"}
+        return {"status": "success", "message": "论文获取与分析定时任务已启动"}
     except Exception as e:
         logger.error(f"启动定时任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"启动定时任务失败: {str(e)}")
@@ -41,11 +49,11 @@ async def start_scheduler():
 @router.post("/stop")
 async def stop_scheduler():
     """
-    停止论文获取定时任务
+    停止论文获取与分析定时任务
     """
     try:
         scheduler_service.stop()
-        return {"status": "success", "message": "论文获取定时任务已停止"}
+        return {"status": "success", "message": "论文获取与分析定时任务已停止"}
     except Exception as e:
         logger.error(f"停止定时任务失败: {e}")
         raise HTTPException(status_code=500, detail=f"停止定时任务失败: {str(e)}") 

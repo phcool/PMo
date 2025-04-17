@@ -19,7 +19,6 @@ dotenv_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=dotenv_path)
 
 from app.services.db_service import db_service
-from app.services.llm_service import llm_service
 from app.services.paper_analysis_service import paper_analysis_service
 
 # 设置日志
@@ -85,6 +84,7 @@ async def analyze_all_papers(batch_size=5, max_papers=None, delay_between_papers
             try:
                 # 分析论文
                 logger.info(f"开始分析论文: {paper.paper_id} - {paper.title}")
+                # 直接使用paper_analysis_service分析论文
                 analysis = await paper_analysis_service.analyze_paper(paper.paper_id)
                 
                 if analysis:
@@ -163,18 +163,26 @@ async def main():
     parser.add_argument('--batch-size', type=int, default=5, help='每批处理的论文数量')
     parser.add_argument('--max-papers', type=int, default=None, help='最大处理论文数量，不指定则处理所有')
     parser.add_argument('--delay', type=float, default=2.0, help='每篇论文之间的延迟(秒)')
+    parser.add_argument('--scheduler', action='store_true', help='使用scheduler服务的start_analysis_task启动分析，不逐个处理')
     args = parser.parse_args()
     
     print(f"开始论文批量分析 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"批次大小: {args.batch_size}")
-    print(f"最大论文数: {'无限制' if args.max_papers is None else args.max_papers}")
-    print(f"论文间延迟: {args.delay}秒")
     
-    await analyze_all_papers(
-        batch_size=args.batch_size,
-        max_papers=args.max_papers,
-        delay_between_papers=args.delay
-    )
+    if args.scheduler:
+        from app.services.scheduler_service import scheduler_service
+        print("使用调度器服务启动分析任务...")
+        result = await scheduler_service.manual_analyze()
+        print(f"分析任务启动结果: {result}")
+    else:
+        print(f"批次大小: {args.batch_size}")
+        print(f"最大论文数: {'无限制' if args.max_papers is None else args.max_papers}")
+        print(f"论文间延迟: {args.delay}秒")
+        
+        await analyze_all_papers(
+            batch_size=args.batch_size,
+            max_papers=args.max_papers,
+            delay_between_papers=args.delay
+        )
 
 if __name__ == "__main__":
     # 设置事件循环策略，使用uvloop如果可用
