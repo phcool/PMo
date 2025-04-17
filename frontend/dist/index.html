@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/favicon.ico">
+  <title>DL Paper Monitor</title>
+  <meta name="description" content="A tool for monitoring and searching deep learning research papers">
+  <!-- PDF.js 库 -->
+  <script src="/pdfjs/pdf.js"></script>
+  <script>
+    // 设置 PDF.js worker
+    window.addEventListener('load', function() {
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.js';
+      }
+    });
+  </script>
+  <script type="module" crossorigin src="/assets/index-1152591e.js"></script>
+  <link rel="stylesheet" href="/assets/index-8f4cf3c7.css">
+</head>
+<body>
+  <div id="app"></div>
+  
+</body>
+</html> 

@@ -1,0 +1,198 @@
+<template>
+  <div class="pdf-viewer-container">
+    <div v-if="loading" class="loading">
+      <div class="loading-spinner"></div>
+      <p>加载PDF中...</p>
+    </div>
+    
+    <!-- 错误信息 -->
+    <div v-if="error" class="error">
+      <p>{{ error }}</p>
+      <div class="pdf-actions">
+        <button @click="reloadPdf" class="action-button">重试</button>
+        <a :href="pdfUrl" target="_blank" class="action-button primary">在新窗口打开</a>
+      </div>
+    </div>
+    
+    <!-- 使用对象标签嵌入PDF -->
+    <object 
+      v-show="!loading"
+      ref="pdfObject"
+      :data="pdfUrl" 
+      type="application/pdf"
+      class="pdf-object"
+    >
+      <div class="pdf-fallback">
+        <p>您的浏览器无法直接显示PDF文件。</p>
+        <p>您可以 <a :href="pdfUrl" target="_blank">下载PDF</a> 或 
+          <a :href="'https://docs.google.com/viewer?url=' + encodeURIComponent(pdfUrl) + '&embedded=true'" target="_blank">
+            在Google Docs中查看
+          </a>
+        </p>
+      </div>
+    </object>
+  </div>
+</template>
+
+<script>
+export default {
+  name: 'PdfViewer',
+  props: {
+    pdfUrl: {
+      type: String,
+      required: true
+    }
+  },
+  data() {
+    return {
+      loading: true,
+      error: null
+    }
+  },
+  mounted() {
+    this.setupPdfObject();
+  },
+  watch: {
+    pdfUrl() {
+      this.loading = true;
+      this.error = null;
+      this.$nextTick(() => {
+        this.setupPdfObject();
+      });
+    }
+  },
+  methods: {
+    setupPdfObject() {
+      this.loading = true;
+      this.error = null;
+      
+      setTimeout(() => {
+        const pdfObject = this.$refs.pdfObject;
+        
+        if (pdfObject) {
+          // 监听加载完成事件
+          pdfObject.onload = () => {
+            console.log('PDF 加载完成');
+            this.loading = false;
+          };
+          
+          // 设置30秒超时
+          setTimeout(() => {
+            if (this.loading) {
+              // 如果仍在加载，可能是卡住了
+              if (pdfObject.contentDocument && 
+                  pdfObject.contentDocument.body && 
+                  pdfObject.contentDocument.body.childElementCount === 0) {
+                this.error = "PDF加载超时，请尝试在新窗口中打开";
+                this.loading = false;
+              } else {
+                // 加载成功但没有触发onload
+                this.loading = false;
+              }
+            }
+          }, 10000);
+        }
+      }, 500);
+    },
+    
+    reloadPdf() {
+      this.setupPdfObject();
+    }
+  }
+}
+</script>
+
+<style scoped>
+.pdf-viewer-container {
+  width: 100%;
+  height: 80vh;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.pdf-object {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+}
+
+.pdf-fallback {
+  padding: 20px;
+  text-align: center;
+  background-color: #f8f8f8;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-fallback a {
+  color: #3f51b5;
+  text-decoration: none;
+}
+
+.pdf-fallback a:hover {
+  text-decoration: underline;
+}
+
+.loading, .error {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 10;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3f51b5;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.pdf-actions {
+  display: flex;
+  margin-top: 1rem;
+  gap: 1rem;
+}
+
+.action-button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  background-color: #f0f0f0;
+  color: #333;
+  text-decoration: none;
+}
+
+.action-button.primary {
+  background-color: #3f51b5;
+  color: white;
+}
+
+.action-button:hover {
+  opacity: 0.9;
+}
+</style> 
