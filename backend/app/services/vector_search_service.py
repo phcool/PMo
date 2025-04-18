@@ -5,6 +5,7 @@ import faiss
 from typing import List, Tuple, Dict, Any, Optional
 from sentence_transformers import SentenceTransformer
 import pickle
+from pathlib import Path
 
 from app.models.paper import Paper
 
@@ -29,8 +30,16 @@ class VectorSearchService:
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
         self.index = None
         self.paper_ids = []
-        self.index_path = "data/paper_index.faiss"
-        self.paper_ids_path = "data/paper_ids.pkl"
+        
+        # 获取项目根目录
+        # 当前文件路径是 backend/app/services/vector_search_service.py
+        # 所以项目根目录为当前文件的上三级目录
+        self.project_root = Path(__file__).parent.parent.parent
+        self.data_dir = self.project_root / "data"
+        self.index_path = str(self.data_dir / "paper_index.faiss")
+        self.paper_ids_path = str(self.data_dir / "paper_ids.pkl")
+        
+        logger.info(f"索引文件将保存在: {self.index_path}")
         
         # 尝试加载现有索引
         self._load_index()
@@ -56,7 +65,7 @@ class VectorSearchService:
     def _save_index(self):
         """将FAISS索引保存到磁盘"""
         try:
-            os.makedirs("data", exist_ok=True)
+            os.makedirs(self.data_dir, exist_ok=True)
             faiss.write_index(self.index, self.index_path)
             with open(self.paper_ids_path, 'wb') as f:
                 pickle.dump(self.paper_ids, f)
