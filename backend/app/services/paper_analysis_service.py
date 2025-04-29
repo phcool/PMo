@@ -326,7 +326,7 @@ class PaperAnalysisService:
                 
                 return text, word_count
                 
-            except fitz.fitz.FileDataError as fe:
+            except fitz.FileDataError as fe:
                  logger.error(f"PyMuPDF无法打开或处理PDF数据 for {paper_id}: {fe}")
                  return None
             except Exception as e_fitz:
