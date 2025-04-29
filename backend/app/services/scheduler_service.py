@@ -140,14 +140,6 @@ class SchedulerService:
             replace_existing=True
         )
         
-        # # 添加一个立即执行一次的任务
-        # self.scheduler.add_job(
-        #     self.fetch_papers_task,
-        #     'date',
-        #     run_date=datetime.now(),
-        #     id="fetch_papers_initial_job"
-        # )
-        
         self.scheduler.start()
         self.is_running = True
         logger.info(f"论文定时服务已启动，获取计划: {self.cron_schedule}, 分析计划: {self.analysis_schedule}")

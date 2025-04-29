@@ -27,7 +27,7 @@
       <a :href="paper.pdf_url" target="_blank" rel="noopener" class="action-button" @click="recordView">
         View PDF
       </a>
-      <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button" @click="recordView">
+      <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
     </div>

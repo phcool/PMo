@@ -52,6 +52,12 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """应用启动时执行"""
+    # 检查是否禁用调度器（当使用cron作业时）
+    disable_scheduler = os.getenv("DISABLE_SCHEDULER", "false").lower() == "true"
+    if disable_scheduler:
+        logger.info("调度器已被禁用（DISABLE_SCHEDULER=true），使用cron作业代替")
+        return
+        
     # 自动启动论文定时获取任务
     auto_start = os.getenv("AUTO_START_SCHEDULER", "true").lower() == "true"
     if auto_start:

@@ -800,6 +800,11 @@ class DBService:
         Returns:
             True 如果成功，False 如果失败。
         """
+        # 确保文本不包含空字节(0x00)，这会导致PostgreSQL UTF-8编码错误
+        if text and '\x00' in text:
+            logger.warning(f"论文 {paper_id} 的文本包含空字节(0x00)，正在清理以避免数据库错误")
+            text = text.replace('\x00', '')
+            
         async for db in get_async_db():
             try:
                 # 尝试获取现有记录

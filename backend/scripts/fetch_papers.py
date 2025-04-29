@@ -1,113 +1,115 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
-手动获取论文脚本
-使用方法:
-    python scripts/fetch_papers.py [--categories cs.LG cs.AI cs.CV] [--max-results 50] [--analyze]
+Standalone script to fetch papers from arXiv.
+This script is designed to be run as a cron job outside of the web server processes.
 """
-
-import asyncio
-import sys
 import os
-import argparse
+import sys
+import asyncio
+import logging
 from datetime import datetime
 
-# 添加项目根目录到Python路径
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add the parent directory to the path so we can import our modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 加载环境变量
-from dotenv import load_dotenv
-load_dotenv()
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs', 'cron_fetch.log')),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("cron_fetch")
 
-# 导入所需服务
-from app.services.scheduler_service import scheduler_service
+# Import our services
+from app.services.arxiv_service import ArxivService
+from app.services.db_service import db_service
+from app.services.vector_search_service import vector_search_service
 
-
-async def fetch_papers(categories=None, max_results=50, analyze=False):
-    """
-    手动获取论文
+# Default categories to fetch
+DEFAULT_CATEGORIES = [
+    # 核心机器学习和深度学习类别
+    "cs.LG",   # 机器学习
+    "cs.AI",   # 人工智能
+    "cs.CV",   # 计算机视觉
+    "cs.CL",   # 计算语言学/自然语言处理
+    "cs.NE",   # 神经和进化计算
+    "stat.ML", # 统计机器学习
     
-    Args:
-        categories: 要获取的论文类别，默认使用配置中的默认类别
-        max_results: 最大获取论文数量
-        analyze: 获取后是否立即分析论文
-    """
-    print(f"开始获取论文，时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # 相关应用领域
+    "cs.RO",   # 机器人学
+    "cs.IR",   # 信息检索
+    "cs.MM",   # 多媒体
+    "cs.SD",   # 声音
+    "cs.HC",   # 人机交互
     
-    if categories:
-        print(f"指定类别: {', '.join(categories)}")
-    else:
-        print(f"使用默认类别: {', '.join(scheduler_service.default_categories)}")
+    # 系统与算法
+    "cs.DC",   # 分布式计算
+    "cs.DS",   # 数据结构与算法
+    "cs.DB",   # 数据库
+    "cs.PL",   # 编程语言
+    "cs.NA",   # 数值分析
+    "cs.AR",   # 硬件架构
     
-    print(f"最大获取数量: {max_results}")
-    print("正在获取中，请稍候...")
+    # 其他相关领域
+    "cs.GT",   # 博弈论
+    "cs.CC",   # 计算复杂性
+    "cs.NI",   # 网络与互联网架构
+    "cs.CR",   # 密码学与安全
+    "cs.SE"    # 软件工程
+]
+
+# Maximum number of papers to fetch per run
+MAX_RESULTS = int(os.getenv("FETCH_MAX_RESULTS", "100"))
+
+async def fetch_papers():
+    """Fetch papers from arXiv and store them in database and vector index."""
+    start_time = datetime.now()
+    logger.info(f"Starting paper fetch job at {start_time}")
     
     try:
-        # 调用服务获取论文
-        result = await scheduler_service.manual_fetch(categories=categories, max_results=max_results)
+        # Fetch papers from arXiv
+        papers = await ArxivService.fetch_recent_papers(
+            categories=DEFAULT_CATEGORIES,
+            max_results=MAX_RESULTS
+        )
         
-        if result["status"] == "success":
-            print("\n✅ 获取成功!")
-            print(f"获取了 {result.get('count', 0)} 篇新论文")
-            print(f"完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            if result.get("message"):
-                print(f"详细信息: {result['message']}")
+        if not papers:
+            logger.info("No new papers found")
+            return
             
-            # 如果指定了分析选项且有新论文，则启动分析
-            if analyze and result.get("count", 0) > 0:
-                print("\n开始分析新获取的论文...")
-                analysis_result = await scheduler_service.manual_analyze()
-                
-                if analysis_result["status"] == "started":
-                    print("✅ 论文分析任务已启动!")
-                    print(f"开始时间: {analysis_result.get('timestamp', datetime.now().isoformat())}")
-                elif analysis_result["status"] == "in_progress":
-                    print("⚠️ 已有分析任务正在进行中，未启动新任务。")
-                else:
-                    print(f"⚠️ 分析任务状态: {analysis_result.get('status')}")
-                    print(f"详细信息: {analysis_result.get('message', '无详细信息')}")
-        else:
-            print("\n❌ 获取失败!")
-            print(f"错误信息: {result.get('message', '未知错误')}")
-    
+        # Add papers to database
+        added_ids = await db_service.add_papers(papers)
+        
+        # Add papers to vector search index
+        if added_ids:
+            papers_to_add = [p for p in papers if p.paper_id in added_ids]
+            await vector_search_service.add_papers(papers_to_add)
+            
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        logger.info(f"Fetch job completed in {duration:.2f} seconds. Fetched {len(papers)} papers, added {len(added_ids)} new papers.")
+        
     except Exception as e:
-        print(f"\n❌ 执行出错: {str(e)}")
-        return False
-    
-    return True
+        logger.error(f"Error in fetch job: {e}", exc_info=True)
 
-
-def main():
-    """主函数，解析命令行参数并执行获取"""
-    parser = argparse.ArgumentParser(description="手动获取arXiv论文")
+async def main():
+    """Main entry point."""
+    # Create logs directory if it doesn't exist
+    logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
     
-    parser.add_argument(
-        "--categories", 
-        nargs="+", 
-        help="要获取的论文类别，例如: cs.LG cs.AI cs.CV"
-    )
+    # Log script start with a divider for readability in logs
+    logger.info("=" * 80)
+    logger.info("Starting paper fetch script")
     
-    parser.add_argument(
-        "--max-results", 
-        type=int, 
-        default=50,
-        help="最大获取论文数量，默认50"
-    )
+    # Run the fetch job
+    await fetch_papers()
     
-    parser.add_argument(
-        "--analyze",
-        action="store_true",
-        help="获取后立即分析新论文"
-    )
-    
-    args = parser.parse_args()
-    
-    # 执行异步函数
-    asyncio.run(fetch_papers(
-        categories=args.categories,
-        max_results=args.max_results,
-        analyze=args.analyze
-    ))
-
+    logger.info("Paper fetch script completed")
+    logger.info("=" * 80)
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 

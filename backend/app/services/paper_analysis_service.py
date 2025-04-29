@@ -125,6 +125,9 @@ def clean_text_for_api(text: str) -> str:
     if not text:
         return ""
         
+    # 删除null字节(0x00)，这会导致PostgreSQL UTF-8编码错误
+    text = text.replace('\x00', '')
+        
     # 删除surrogate pairs和无效Unicode字符
     # \ud800-\udfff是Unicode代理对范围
     text = re.sub(r'[\ud800-\udfff]', '', text)
@@ -296,12 +299,17 @@ class PaperAnalysisService:
                             page = doc.load_page(i)
                             page_text = page.get_text("text") 
                             if page_text:
+                                # 立即清理每个页面的空字节
+                                page_text = page_text.replace('\x00', '')
                                 extracted_texts.append(page_text.strip()) 
                         except Exception as page_error:
                              logger.warning(f"提取PDF页面 {i+1}/{total_pages} 出错 for {paper_id}: {page_error}")
                              continue # 跳过出错页面
                             
                     text = "\n\n".join(extracted_texts) # 使用双换行符分隔页面
+                
+                # 最后再清理一次整个文本的空字节
+                text = text.replace('\x00', '')
                 
                 extraction_time = time.time() - extraction_start
                 logger.info(f"PDF文本提取完成 for {paper_id}，提取了 {pages_to_process}/{total_pages} 页, 耗时: {extraction_time:.2f} 秒")
@@ -416,12 +424,35 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
              logger.error(f"在调用LLM或处理其响应时出错 for {paper_id}: {e.__class__.__name__} - {e}")
              return None
 
-    async def analyze_paper(self, paper_id: str) -> Optional[PaperAnalysis]:
+    async def analyze_paper(self, paper_id: str, timeout_seconds: int = 120) -> Optional[PaperAnalysis]:
         """
         分析单篇论文：获取信息 -> 提取文本 -> 保存文本+字数 -> 调用LLM -> 解析结果 -> 保存分析
+        
+        Args:
+            paper_id: 论文ID
+            timeout_seconds: 单篇论文分析的超时时间（秒），默认2分钟
         """
         logger.info(f"[{paper_id}] 开始分析论文")
+        paper_start_time = time.time()
         
+        # 设置任务超时控制
+        try:
+            return await asyncio.wait_for(
+                self._analyze_paper_internal(paper_id),
+                timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"[{paper_id}] 分析超时，超过了{timeout_seconds}秒的限制")
+            return None
+        except Exception as e:
+            logger.error(f"[{paper_id}] 分析过程中发生错误: {e}", exc_info=True)
+            return None
+        finally:
+            paper_duration = time.time() - paper_start_time
+            logger.info(f"[{paper_id}] 分析任务结束，总耗时: {paper_duration:.2f}秒")
+    
+    async def _analyze_paper_internal(self, paper_id: str) -> Optional[PaperAnalysis]:
+        """内部方法，实际执行论文分析逻辑"""
         # 1. 检查分析是否已存在
         existing_analysis = await db_service.get_paper_analysis(paper_id)
         if existing_analysis:
@@ -504,10 +535,14 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
         else:
             logger.error(f"[{paper_id}] 保存分析结果到数据库失败")
             return None
-    
-    async def analyze_pending_papers(self) -> Dict[str, Any]:
+            
+    async def analyze_pending_papers(self, process_all: bool = False, max_papers: int = None) -> Dict[str, Any]:
         """
         分析一批待处理的论文
+        
+        Args:
+            process_all: 是否处理所有待分析论文，而不受批量大小限制
+            max_papers: 最大处理论文数量限制（如果设置）
         """
         if self.is_analyzing:
             logger.info("分析任务已在运行中")
@@ -518,68 +553,107 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
         processed_count = 0
         failed_count = 0
         total_pending = 0
-
+        total_processed = 0
+        
         try:
-            logger.info(f"开始批量分析任务，批大小: {self.batch_size}")
-            pending_papers = await db_service.get_papers_without_analysis(limit=self.batch_size)
-            total_pending = len(pending_papers)
-            logger.info(f"找到 {total_pending} 篇待分析的论文")
+            # 设置获取论文的批次大小和最大数量限制
+            batch_limit = None if process_all else self.batch_size
+            if max_papers is not None:
+                batch_limit = min(max_papers, batch_limit) if batch_limit else max_papers
+                
+            logger.info(f"开始分析任务: {'处理所有待分析论文' if process_all else f'批量大小={batch_limit}'}")
+            
+            # 第一次获取待分析论文
+            pending_papers = await db_service.get_papers_without_analysis(limit=batch_limit)
             
             if not pending_papers:
                 logger.info("没有需要分析的论文")
                 return {"status": "no_pending", "message": "No papers found needing analysis.", "processed": 0, "failed": 0}
-
-            analysis_tasks = []
-            for paper in pending_papers:
-                # 为每篇论文创建一个分析任务
-                analysis_tasks.append(self.analyze_paper(paper.paper_id))
             
-            # 并发执行分析任务
-            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-            
-            # 处理结果
-            for result in results:
-                if isinstance(result, PaperAnalysis):
-                    processed_count += 1
-                elif isinstance(result, Exception):
-                    logger.error(f"批量分析中遇到错误: {result}")
-                    failed_count += 1
-                else: # 分析失败返回 None
-                    failed_count += 1
+            while pending_papers:
+                batch_size = len(pending_papers)
+                total_pending += batch_size
+                logger.info(f"开始处理新批次: {batch_size} 篇待分析论文")
+                
+                analysis_tasks = []
+                for paper in pending_papers:
+                    # 为每篇论文创建一个分析任务，添加2分钟超时
+                    analysis_tasks.append(self.analyze_paper(paper.paper_id, timeout_seconds=120))
+                
+                # 并发执行分析任务
+                results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+                
+                # 处理结果
+                batch_processed = 0
+                batch_failed = 0
+                for result in results:
+                    if isinstance(result, PaperAnalysis):
+                        batch_processed += 1
+                        processed_count += 1
+                    elif isinstance(result, Exception):
+                        logger.error(f"批量分析中遇到错误: {result}")
+                        batch_failed += 1
+                        failed_count += 1
+                    else: # 分析失败返回 None
+                        batch_failed += 1
+                        failed_count += 1
+                
+                total_processed += batch_size
+                logger.info(f"当前批次完成. 成功: {batch_processed}, 失败: {batch_failed}")
+                
+                # 如果不处理所有论文或已达到最大数量，则退出循环
+                if not process_all or (max_papers is not None and total_processed >= max_papers):
+                    break
+                    
+                # 获取下一批待分析论文
+                if process_all:
+                    next_batch_limit = max_papers - total_processed if max_papers is not None else None
+                    if next_batch_limit is not None and next_batch_limit <= 0:
+                        break
+                    pending_papers = await db_service.get_papers_without_analysis(limit=next_batch_limit)
+                else:
+                    break
             
             duration = time.time() - start_time
-            logger.info(f"批量分析任务完成. 总耗时: {duration:.2f} 秒. 成功: {processed_count}, 失败: {failed_count}")
+            logger.info(f"分析任务完成. 总耗时: {duration:.2f} 秒. 总计论文: {total_pending}, 成功: {processed_count}, 失败: {failed_count}")
             
             return {
                 "status": "completed", 
-                "message": f"Batch analysis finished.",
-                "total_pending_before": total_pending,
+                "message": f"Analysis finished.",
+                "total_pending": total_pending,
                 "processed": processed_count, 
                 "failed": failed_count,
                 "duration_seconds": round(duration, 2)
             }
             
         except Exception as e:
-            logger.error(f"批量分析任务失败: {e}", exc_info=True)
+            logger.error(f"分析任务失败: {e}", exc_info=True)
             return {"status": "error", "message": str(e), "processed": processed_count, "failed": failed_count}
         finally:
             self.is_analyzing = False
             self.current_task = None
-    
-    async def start_analysis_task(self) -> Dict[str, Any]:
+            
+    async def start_analysis_task(self, process_all: bool = False, max_papers: int = None) -> Dict[str, Any]:
         """
         异步启动批量论文分析任务
+        
+        Args:
+            process_all: 是否处理所有待分析论文，而不受批量大小限制
+            max_papers: 最大处理论文数量限制（如果设置）
         """
         if self.is_analyzing:
             logger.info("分析任务已在运行中，无法启动新的任务")
             return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
 
-        logger.info("准备启动后台批量分析任务")
+        logger.info(f"准备启动后台批量分析任务 (处理所有={process_all}, 最大数量={max_papers or '无限制'})")
         self.is_analyzing = True # 标记任务开始
         
         # 使用 asyncio.create_task 在后台运行 analyze_pending_papers
         # 将任务对象保存起来，如果需要的话可以用于查询状态或取消
-        self.current_task = asyncio.create_task(self.analyze_pending_papers(), name=f"paper_analysis_task_{datetime.now():%Y%m%d_%H%M%S}")
+        self.current_task = asyncio.create_task(
+            self.analyze_pending_papers(process_all=process_all, max_papers=max_papers), 
+            name=f"paper_analysis_task_{datetime.now():%Y%m%d_%H%M%S}"
+        )
         
         logger.info(f"后台批量分析任务已启动: {self.current_task.get_name()}")
         
