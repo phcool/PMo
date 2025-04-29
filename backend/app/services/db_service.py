@@ -9,7 +9,8 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
 from app.models.paper import Paper, PaperResponse, PaperAnalysis, PaperAnalysisResponse
-from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBPaperAnalysis
+from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBPaperAnalysis, DBPaperExtractedText, DBUserPreferences, DBUserSearchHistory, DBUserPaperView
+from app.models.user import UserPreferences, SearchHistoryItem, UserSearchHistory, PaperViewItem, UserPaperViews
 from app.db.database import get_async_db
 
 logger = logging.getLogger(__name__)
@@ -260,6 +261,60 @@ class DBService:
         
         return papers
     
+    async def get_random_papers_by_category(self, categories: List[str], limit: int = 10, offset: int = 0) -> List[PaperResponse]:
+        """
+        从指定分类中随机获取论文
+        
+        Args:
+            categories: 分类名称列表
+            limit: 返回的最大论文数
+            offset: 分页偏移量
+            
+        Returns:
+            PaperResponse对象列表
+        """
+        papers = []
+        if not categories:
+            return papers
+            
+        async for db in get_async_db():
+            try:
+                stmt = (
+                    select(DBPaper)
+                    .join(DBPaper.categories)
+                    .options(
+                        selectinload(DBPaper.authors),
+                        selectinload(DBPaper.categories)
+                    )
+                    .where(DBCategory.name.in_(categories))
+                    .order_by(func.random())  # 使用数据库的随机函数
+                    .offset(offset)  # 添加偏移量支持
+                    .limit(limit)
+                )
+                
+                result = await db.execute(stmt)
+                # 使用 distinct() 避免因多分类关联导致重复论文
+                db_papers = result.scalars().unique().all() 
+                
+                # 转换为API模型
+                for db_paper in db_papers:
+                    papers.append(PaperResponse(
+                        paper_id=db_paper.paper_id,
+                        title=db_paper.title,
+                        authors=[author.name for author in db_paper.authors],
+                        abstract=db_paper.abstract,
+                        categories=[category.name for category in db_paper.categories],
+                        pdf_url=db_paper.pdf_url,
+                        published_date=db_paper.published_date,
+                        updated_date=db_paper.updated_date
+                    ))
+            except Exception as e:
+                logger.error(f"按分类随机获取论文时出错: {e}")
+                # 可以选择返回空列表或重新抛出异常
+                return []
+        
+        return papers
+    
     async def count_papers(self) -> int:
         """
         计算数据库中的论文总数
@@ -285,33 +340,23 @@ class DBService:
         """
         try:
             async for db in get_async_db():
-                # 首先检查论文是否存在
-                result = await db.execute(
-                    select(DBPaper).where(DBPaper.paper_id == analysis.paper_id)
-                )
-                db_paper = result.scalars().first()
+                # Check if analysis exists
+                result = await db.execute(select(DBPaperAnalysis).filter(DBPaperAnalysis.paper_id == analysis.paper_id))
+                db_analysis = result.scalars().first()
                 
-                if not db_paper:
-                    logger.error(f"保存分析结果失败：论文不存在 {analysis.paper_id}")
-                    return False
-                
-                # 检查该论文是否已有分析结果
-                result = await db.execute(
-                    select(DBPaperAnalysis).where(DBPaperAnalysis.paper_id == analysis.paper_id)
-                )
-                existing_analysis = result.scalars().first()
-                
-                if existing_analysis:
-                    # 更新现有分析
-                    existing_analysis.summary = analysis.summary
-                    existing_analysis.key_findings = analysis.key_findings
-                    existing_analysis.contributions = analysis.contributions
-                    existing_analysis.methodology = analysis.methodology
-                    existing_analysis.limitations = analysis.limitations
-                    existing_analysis.future_work = analysis.future_work
-                    existing_analysis.updated_at = analysis.updated_at
+                if db_analysis:
+                    # Update existing analysis
+                    db_analysis.summary = analysis.summary
+                    db_analysis.key_findings = analysis.key_findings
+                    db_analysis.contributions = analysis.contributions
+                    db_analysis.methodology = analysis.methodology
+                    db_analysis.limitations = analysis.limitations
+                    db_analysis.future_work = analysis.future_work
+                    db_analysis.keywords = analysis.keywords
+                    db_analysis.updated_at = datetime.utcnow()
+                    logger.info(f"更新论文分析: {analysis.paper_id}")
                 else:
-                    # 创建新分析
+                    # Create new analysis
                     db_analysis = DBPaperAnalysis(
                         paper_id=analysis.paper_id,
                         summary=analysis.summary,
@@ -320,18 +365,21 @@ class DBService:
                         methodology=analysis.methodology,
                         limitations=analysis.limitations,
                         future_work=analysis.future_work,
-                        created_at=analysis.created_at,
-                        updated_at=analysis.updated_at
+                        keywords=analysis.keywords,
+                        created_at=analysis.created_at or datetime.utcnow(), # Use provided or default
+                        updated_at=datetime.utcnow()
                     )
                     db.add(db_analysis)
+                    logger.info(f"创建新的论文分析: {analysis.paper_id}")
                 
                 await db.commit()
-                logger.info(f"已保存论文分析结果：{analysis.paper_id}")
                 return True
         
         except Exception as e:
-            logger.error(f"保存论文分析结果时出错：{e}")
+            await db.rollback()
+            logger.error(f"保存论文分析失败 {analysis.paper_id}: {e}")
             return False
+        return False # Should not happen if get_async_db works
 
     async def get_paper_analysis(self, paper_id: str) -> Optional[PaperAnalysis]:
         """
@@ -361,6 +409,7 @@ class DBService:
                     methodology=db_analysis.methodology,
                     limitations=db_analysis.limitations,
                     future_work=db_analysis.future_work,
+                    keywords=db_analysis.keywords,
                     created_at=db_analysis.created_at,
                     updated_at=db_analysis.updated_at
                 )
@@ -371,48 +420,442 @@ class DBService:
 
     async def get_papers_without_analysis(self, limit: int = 10) -> List[Paper]:
         """
-        获取未进行分析的论文列表
+        获取未分析的论文
         
         Args:
-            limit: 返回结果数量限制
+            limit: 最大返回数量
             
         Returns:
-            未分析的论文列表
+            论文列表
         """
-        try:
-            async for db in get_async_db():
-                # 查询没有关联分析的论文
+        papers = []
+        async for db in get_async_db():
+            # 查询没有关联分析的论文
+            stmt = (
+                select(DBPaper)
+                .options(
+                    selectinload(DBPaper.authors),
+                    selectinload(DBPaper.categories)
+                )
+                .outerjoin(DBPaperAnalysis)
+                .where(DBPaperAnalysis.paper_id == None)
+                .limit(limit)
+            )
+            
+            result = await db.execute(stmt)
+            db_papers = result.scalars().all()
+            
+            for db_paper in db_papers:
+                papers.append(Paper(
+                    paper_id=db_paper.paper_id,
+                    title=db_paper.title,
+                    authors=[author.name for author in db_paper.authors],
+                    abstract=db_paper.abstract,
+                    categories=[category.name for category in db_paper.categories],
+                    pdf_url=db_paper.pdf_url,
+                    published_date=db_paper.published_date,
+                    updated_date=db_paper.updated_date,
+                    embedding=None
+                ))
+                
+        return papers
+
+    # 用户偏好相关方法
+    async def get_user_preferences(self, user_id: str) -> Optional[UserPreferences]:
+        """
+        获取用户偏好设置
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            用户偏好设置或None（如果不存在）
+        """
+        async for db in get_async_db():
+            result = await db.execute(
+                select(DBUserPreferences)
+                .where(DBUserPreferences.user_id == user_id)
+            )
+            db_prefs = result.scalars().first()
+            
+            if not db_prefs:
+                return None
+            
+            return UserPreferences(
+                user_id=db_prefs.user_id,
+                preferences=db_prefs.preferences,
+                created_at=db_prefs.created_at,
+                updated_at=db_prefs.updated_at
+            )
+        
+        return None
+        
+    async def save_user_preferences(self, user_prefs: UserPreferences) -> bool:
+        """
+        保存用户偏好设置
+        
+        Args:
+            user_prefs: 用户偏好设置
+            
+        Returns:
+            是否成功保存
+        """
+        async for db in get_async_db():
+            try:
+                # 查询用户偏好是否已存在
                 result = await db.execute(
-                    select(DBPaper)
-                    .outerjoin(DBPaperAnalysis, DBPaper.paper_id == DBPaperAnalysis.paper_id)
-                    .options(
-                        selectinload(DBPaper.authors),
-                        selectinload(DBPaper.categories)
+                    select(DBUserPreferences)
+                    .where(DBUserPreferences.user_id == user_prefs.user_id)
+                )
+                existing_prefs = result.scalars().first()
+                
+                now = datetime.now()
+                
+                if existing_prefs:
+                    # 更新现有记录
+                    existing_prefs.preferences = user_prefs.preferences
+                    existing_prefs.updated_at = now
+                else:
+                    # 创建新记录
+                    db_prefs = DBUserPreferences(
+                        user_id=user_prefs.user_id,
+                        preferences=user_prefs.preferences,
+                        created_at=now,
+                        updated_at=now
                     )
-                    .where(DBPaperAnalysis.paper_id == None)
+                    db.add(db_prefs)
+                
+                await db.commit()
+                logger.info(f"用户偏好设置已保存: {user_prefs.user_id}")
+                return True
+                
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"保存用户偏好设置失败: {e}")
+                return False
+        
+        return False
+
+    # 用户搜索历史相关方法
+    async def save_search_history(self, user_id: str, query: str) -> bool:
+        """
+        保存用户搜索历史
+        
+        Args:
+            user_id: 用户ID
+            query: 搜索查询
+            
+        Returns:
+            是否成功保存
+        """
+        async for db in get_async_db():
+            try:
+                # 创建搜索历史记录
+                search_history = DBUserSearchHistory(
+                    user_id=user_id,
+                    query=query,
+                    timestamp=datetime.now()
+                )
+                db.add(search_history)
+                
+                # 限制每个用户的搜索历史数量为20条
+                # 删除最旧的记录
+                stmt = (
+                    select(DBUserSearchHistory)
+                    .where(DBUserSearchHistory.user_id == user_id)
+                    .order_by(DBUserSearchHistory.timestamp.desc())
+                    .offset(20)
+                )
+                
+                result = await db.execute(stmt)
+                old_records = result.scalars().all()
+                
+                for record in old_records:
+                    await db.delete(record)
+                
+                await db.commit()
+                logger.info(f"用户搜索历史已保存: {user_id}, 查询: {query}")
+                return True
+                
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"保存用户搜索历史失败: {e}")
+                return False
+        
+        return False
+        
+    async def get_search_history(self, user_id: str, limit: int = 10) -> UserSearchHistory:
+        """
+        获取用户搜索历史
+        
+        Args:
+            user_id: 用户ID
+            limit: 最大返回数量
+            
+        Returns:
+            用户搜索历史
+        """
+        searches = []
+        
+        async for db in get_async_db():
+            try:
+                stmt = (
+                    select(DBUserSearchHistory)
+                    .where(DBUserSearchHistory.user_id == user_id)
+                    .order_by(DBUserSearchHistory.timestamp.desc())
                     .limit(limit)
                 )
-                db_papers = result.scalars().all()
                 
-                papers = []
-                for db_paper in db_papers:
-                    papers.append(Paper(
-                        paper_id=db_paper.paper_id,
-                        title=db_paper.title,
-                        authors=[author.name for author in db_paper.authors],
-                        abstract=db_paper.abstract,
-                        categories=[category.name for category in db_paper.categories],
-                        pdf_url=db_paper.pdf_url,
-                        published_date=db_paper.published_date,
-                        updated_date=db_paper.updated_date,
-                        embedding=None
-                    ))
+                result = await db.execute(stmt)
+                db_searches = result.scalars().all()
                 
-                return papers
+                for db_search in db_searches:
+                    searches.append(
+                        SearchHistoryItem(
+                            query=db_search.query,
+                            timestamp=db_search.timestamp
+                        )
+                    )
+                
+            except Exception as e:
+                logger.error(f"获取用户搜索历史时出错: {e}")
         
-        except Exception as e:
-            logger.error(f"获取未分析的论文时出错：{e}")
+        return UserSearchHistory(
+            user_id=user_id,
+            searches=searches,
+            updated_at=datetime.now() if searches else None
+        )
+        
+    async def record_paper_view(self, user_id: str, paper_id: str) -> bool:
+        """
+        记录用户论文浏览记录
+        
+        Args:
+            user_id: 用户ID
+            paper_id: 论文ID
+            
+        Returns:
+            是否成功记录
+        """
+        if not user_id or not paper_id:
+            return False
+            
+        async for db in get_async_db():
+            try:
+                # 检查论文是否存在
+                paper_result = await db.execute(
+                    select(DBPaper).where(DBPaper.paper_id == paper_id)
+                )
+                paper = paper_result.scalars().first()
+                
+                if not paper:
+                    logger.warning(f"记录浏览记录失败：论文不存在 {paper_id}")
+                    return False
+                
+                # 检查今天是否已经有该用户浏览该论文的记录
+                today = datetime.now().date()
+                view_stmt = (
+                    select(DBUserPaperView)
+                    .where(
+                        DBUserPaperView.user_id == user_id,
+                        DBUserPaperView.paper_id == paper_id,
+                        DBUserPaperView.view_date == today
+                    )
+                )
+                
+                result = await db.execute(view_stmt)
+                existing_view = result.scalars().first()
+                
+                if existing_view:
+                    # 更新现有记录
+                    existing_view.view_count += 1
+                    existing_view.last_viewed_at = datetime.now()
+                else:
+                    # 创建新记录
+                    new_view = DBUserPaperView(
+                        user_id=user_id,
+                        paper_id=paper_id,
+                        view_date=today,
+                        first_viewed_at=datetime.now(),
+                        last_viewed_at=datetime.now(),
+                        view_count=1
+                    )
+                    db.add(new_view)
+                
+                await db.commit()
+                return True
+                
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"记录用户论文浏览记录时出错: {e}")
+                return False
+        
+        return False
+        
+    async def get_user_paper_views(self, user_id: str, limit: int = 20, days: int = 30) -> UserPaperViews:
+        """
+        获取用户论文浏览记录
+        
+        Args:
+            user_id: 用户ID
+            limit: 最大返回数量
+            days: 只返回最近多少天的记录
+            
+        Returns:
+            用户论文浏览记录
+        """
+        if not user_id:
+            return UserPaperViews(user_id=user_id, views=[], updated_at=None)
+            
+        views = []
+        from datetime import timedelta
+        date_from = datetime.now().date() - timedelta(days=days)
+        
+        async for db in get_async_db():
+            try:
+                # 获取用户最近的浏览记录，并联表查询论文标题
+                stmt = (
+                    select(DBUserPaperView, DBPaper.title)
+                    .join(DBPaper, DBUserPaperView.paper_id == DBPaper.paper_id)
+                    .where(
+                        DBUserPaperView.user_id == user_id,
+                        DBUserPaperView.view_date >= date_from
+                    )
+                    .order_by(DBUserPaperView.last_viewed_at.desc())
+                    .limit(limit)
+                )
+                
+                result = await db.execute(stmt)
+                for view_record, title in result:
+                    views.append(
+                        PaperViewItem(
+                            paper_id=view_record.paper_id,
+                            title=title,
+                            view_date=view_record.view_date,
+                            view_count=view_record.view_count,
+                            first_viewed_at=view_record.first_viewed_at,
+                            last_viewed_at=view_record.last_viewed_at
+                        )
+                    )
+                
+            except Exception as e:
+                logger.error(f"获取用户论文浏览记录时出错: {e}")
+        
+        return UserPaperViews(
+            user_id=user_id,
+            views=views,
+            updated_at=datetime.now() if views else None
+        )
+    
+    async def get_viewed_papers(self, user_id: str, limit: int = 10) -> List[Paper]:
+        """
+        获取用户浏览过的论文
+        
+        Args:
+            user_id: 用户ID
+            limit: 最大返回数量
+            
+        Returns:
+            论文列表
+        """
+        if not user_id:
             return []
+            
+        papers = []
+        
+        async for db in get_async_db():
+            try:
+                # 获取用户最近浏览的论文ID
+                stmt = (
+                    select(DBUserPaperView.paper_id, DBUserPaperView.last_viewed_at)
+                    .where(DBUserPaperView.user_id == user_id)
+                    .order_by(DBUserPaperView.last_viewed_at.desc())
+                    .distinct()
+                    .limit(limit)
+                )
+                
+                result = await db.execute(stmt)
+                paper_ids = [row[0] for row in result.all()]
+                
+                if not paper_ids:
+                    return []
+                
+                # 获取论文详情
+                papers = await self.get_papers_by_ids(paper_ids)
+                
+            except Exception as e:
+                logger.error(f"获取用户浏览过的论文时出错: {e}")
+        
+        return papers
+
+    async def save_or_update_extracted_text(self, paper_id: str, text: str, word_count: Optional[int] = None) -> bool:
+        """
+        保存或更新论文提取的文本内容和字数统计。
+        
+        Args:
+            paper_id: 论文ID。
+            text: 提取的文本内容。
+            word_count: 估算的字数。
+            
+        Returns:
+            True 如果成功，False 如果失败。
+        """
+        async for db in get_async_db():
+            try:
+                # 尝试获取现有记录
+                result = await db.execute(
+                    select(DBPaperExtractedText).filter(DBPaperExtractedText.paper_id == paper_id)
+                )
+                existing_record = result.scalars().first()
+                
+                if existing_record:
+                    # 更新现有记录
+                    existing_record.text = text
+                    existing_record.word_count = word_count # Update word count
+                    existing_record.updated_at = datetime.utcnow()
+                    logger.info(f"更新论文 {paper_id} 的提取文本和字数 ({word_count})")
+                else:
+                    # 创建新记录
+                    new_record = DBPaperExtractedText(
+                        paper_id=paper_id,
+                        text=text,
+                        word_count=word_count, # Add word count
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(new_record)
+                    logger.info(f"为论文 {paper_id} 创建新的提取文本记录 (字数: {word_count})")
+                    
+                await db.commit()
+                return True
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"保存或更新论文 {paper_id} 的提取文本失败: {e}", exc_info=True)
+                return False
+        return False # Fallback
+
+    async def get_extracted_text(self, paper_id: str) -> Optional[str]:
+        """
+        获取指定论文的提取文本内容。
+        
+        Args:
+            paper_id: 论文ID。
+            
+        Returns:
+            提取的文本字符串，如果未找到则返回 None。
+        """
+        async for db in get_async_db():
+            try:
+                result = await db.execute(
+                    select(DBPaperExtractedText.text).filter(DBPaperExtractedText.paper_id == paper_id)
+                )
+                # scalars().first() 会直接返回第一列的第一个值，即文本内容
+                text_content = result.scalars().first()
+                return text_content
+            except Exception as e:
+                logger.error(f"获取论文 {paper_id} 的提取文本失败: {e}")
+                return None
+        return None # Fallback
 
 # 创建一个全局实例
 db_service = DBService() 

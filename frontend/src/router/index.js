@@ -9,15 +9,15 @@ const routes = [
     component: HomeView
   },
   {
-    path: '/search',
-    name: 'search',
-    component: () => import('../views/SearchView.vue')
-  },
-  {
     path: '/paper/:id',
     name: 'paper-detail',
     component: () => import('../views/PaperDetailView.vue'),
     props: true
+  },
+  {
+    path: '/history',
+    name: 'user-history',
+    component: () => import('../views/UserHistoryView.vue')
   },
   {
     // Catch all route (404)

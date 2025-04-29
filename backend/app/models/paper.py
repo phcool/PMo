@@ -39,6 +39,7 @@ class PaperAnalysis(BaseModel):
     methodology: Optional[str] = Field(None, description="方法论")
     limitations: Optional[str] = Field(None, description="局限性")
     future_work: Optional[str] = Field(None, description="未来工作")
+    keywords: Optional[str] = Field(None, description="论文关键词")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 
@@ -52,6 +53,7 @@ class PaperAnalysisResponse(BaseModel):
     methodology: Optional[str] = None
     limitations: Optional[str] = None
     future_work: Optional[str] = None
+    keywords: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

@@ -17,13 +17,14 @@ load_dotenv(dotenv_path=dotenv_path)
 sys.path.append(str(Path(__file__).parent.parent))
 
 from app.services.llm_service import llm_service
+from app.services.paper_analysis_service import paper_analysis_service
 
 async def test_analyze_pdf():
     """测试PDF分析功能"""
-    print("开始测试LLM服务...")
+    print("开始测试PDF分析服务...")
     
     # 测试用的PDF URL，请替换为实际可访问的PDF URL
-    pdf_url = "https://arxiv.org/pdf/2504.11421"  # 这是GPT-3论文的URL，作为示例
+    pdf_url = "https://arxiv.org/pdf/2504.11421"  # 这是论文示例
     paper_id = "test_paper_123"
     
     print(f"使用API URL: {llm_service.api_url}")
@@ -39,7 +40,7 @@ async def test_analyze_pdf():
         print("正在提取PDF文本...")
         
         # 首先测试文本提取
-        text = await llm_service.extract_text_from_pdf(pdf_url)
+        text = await paper_analysis_service.extract_text_from_pdf(pdf_url)
         if not text:
             print("错误: 无法提取PDF文本")
             return
@@ -49,8 +50,8 @@ async def test_analyze_pdf():
         print(text[:200] + "...\n")
         
         # 测试完整分析
-        print("开始LLM分析...")
-        result = await llm_service.analyze_pdf(paper_id, pdf_url)
+        print("开始PDF分析...")
+        result = await paper_analysis_service.analyze_pdf(paper_id, pdf_url)
         
         if result:
             print("分析成功! 结果:")
@@ -62,7 +63,8 @@ async def test_analyze_pdf():
                 "contributions": result.contributions,
                 "methodology": result.methodology,
                 "limitations": result.limitations,
-                "future_work": result.future_work
+                "future_work": result.future_work,
+                "keywords": result.keywords
             }
             # 美化打印JSON
             print(json.dumps(result_dict, ensure_ascii=False, indent=2))

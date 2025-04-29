@@ -1,53 +1,102 @@
 <template>
   <div class="home">
     <div class="hero-section">
-      <h1>DL Paper Monitor</h1>
-      <p>Stay up-to-date with the latest deep learning research papers</p>
-      
-      <!-- 简化的搜索框 -->
+      <!-- Search Box -->
       <div class="search-container">
         <div class="search-form">
           <input 
             v-model="searchQuery" 
             class="search-input" 
             placeholder="Search papers..." 
-            @keyup.enter="navigateToSearch" 
+            @keyup.enter="performSearch(false)" 
             aria-label="Search papers"
           />
-          <button @click="navigateToSearch" class="search-button">
-            <font-awesome-icon icon="search" />
+          <button @click="performSearch(false)" class="search-button" :disabled="isSearching || !searchQuery.trim()">
+            <font-awesome-icon v-if="!isSearching" icon="search" />
+            <span v-else>Searching...</span>
           </button>
         </div>
       </div>
       
       <div class="paper-count" v-if="paperCount !== null">
-        <p>Currently monitoring <strong>{{ paperCount }}</strong> papers</p>
+        <p>Currently indexed <strong>{{ paperCount }}</strong> papers</p>
       </div>
     </div>
     
-    <!-- 最近论文列表 -->
-    <div class="recent-papers">
-      <h2>Recent Papers</h2>
+    <!-- Search Results Section -->
+    <div v-if="showSearchResults" class="search-results-section">
+      <h2>Search Results</h2>
       
-      <div v-if="isLoading" class="loading">
-        Loading papers...
+      <div v-if="isSearching" class="loading">
+        <p>Searching papers...</p>
       </div>
       
-      <div v-else-if="papers.length === 0" class="no-papers">
-        <p>No papers found. Our system will automatically fetch new papers periodically.</p>
+      <div v-else-if="searchResults.length === 0" class="no-results">
+        <p>No results found for "{{ searchQuery }}"</p>
+        <button @click="resetSearch" class="secondary-button">Show Recent Papers</button>
       </div>
       
       <div v-else class="papers-list">
-        <PaperCard v-for="paper in papers" :key="paper.paper_id" :paper="paper" />
+        <PaperCard v-for="paper in searchResults" :key="paper.paper_id" :paper="paper" />
+      </div>
+      
+      <div class="search-actions">
+        <button @click="resetSearch" class="secondary-button">Back to Recent Papers</button>
+      </div>
+    </div>
+    
+    <!-- Papers Sections Container (shown when not searching) -->
+    <div v-if="!showSearchResults" class="papers-container">
+      <!-- Recent Papers List -->
+      <div class="recent-papers">
+        <h2>Recent Papers</h2>
         
-        <div class="load-more">
+        <div v-if="isLoading" class="loading">
+          Loading papers...
+        </div>
+        
+        <div v-else-if="papers.length === 0" class="no-papers">
+          <p>No papers found. Our system will automatically fetch new papers periodically.</p>
+        </div>
+        
+        <div v-else class="papers-list">
+          <PaperCard v-for="paper in papers" :key="paper.paper_id" :paper="paper" />
+        </div>
+        
+        <!-- Load More button for Recent Papers -->
+        <div v-if="papers.length > 0" class="section-load-more">
           <button 
             v-if="hasMorePapers" 
-            @click="loadMore" 
-            :disabled="isLoadingMore"
+            @click="loadMoreRecent" 
+            :disabled="isLoadingMoreRecent"
             class="secondary-button"
           >
-            {{ isLoadingMore ? 'Loading...' : 'Load More' }}
+            {{ isLoadingMoreRecent ? 'Loading...' : 'Load More Recent' }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- Recommended Papers Based on Search History -->
+      <div v-if="recommendedPapers.length > 0" class="recommended-papers">
+        <h2>Recommendations</h2>
+        
+        <div v-if="isLoadingRecommended" class="loading">
+          Loading recommendations...
+        </div>
+        
+        <div v-else class="papers-list">
+          <PaperCard v-for="paper in recommendedPapers" :key="paper.paper_id" :paper="paper" />
+        </div>
+        
+        <!-- Load More button for Recommended Papers -->
+        <div v-if="recommendedPapers.length > 0" class="section-load-more">
+          <button 
+            v-if="hasMoreRecommended" 
+            @click="loadMoreRecommended" 
+            :disabled="isLoadingMoreRecommended"
+            class="secondary-button"
+          >
+            {{ isLoadingMoreRecommended ? 'Loading...' : 'Load More Recommendations' }}
           </button>
         </div>
       </div>
@@ -56,8 +105,8 @@
 </template>
 
 <script>
-import { defineComponent, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { defineComponent, ref, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import PaperCard from '../components/PaperCard.vue'
 import api from '../services/api'
 
@@ -70,45 +119,147 @@ export default defineComponent({
   
   setup() {
     const router = useRouter();
+    const route = useRoute();
     
-    // 最近论文数据
-    const papers = ref([])
-    const paperCount = ref(null)
-    const isLoading = ref(false)
-    const isLoadingMore = ref(false)
-    const offset = ref(0)
-    const limit = ref(10)
-    const hasMorePapers = ref(true)
-    
-    // 搜索相关数据
-    const searchQuery = ref('')
-    
-    // 加载最近论文
+    // --- Define refs first ---
+    const papers = ref([]);
+    const paperCount = ref(null);
+    const isLoading = ref(false);
+    const isLoadingMoreRecent = ref(false);
+    const isLoadingMoreRecommended = ref(false);
+    const offset = ref(0);
+    const limit = ref(10);
+    const hasMorePapers = ref(true);
+    const recommendedPapers = ref([]);
+    const isLoadingRecommended = ref(false);
+    const recommendedOffset = ref(0);
+    const hasMoreRecommended = ref(true);
+    const searchQuery = ref('');
+    const searchResults = ref([]);
+    const isSearching = ref(false);
+    const showSearchResults = computed(() => searchResults.value.length > 0 || (searchQuery.value && isSearching.value));
+
+    // --- Define methods that might be called by watchers or onMount ---
+    // Perform search
+    const performSearch = async (isRouteTriggered = false) => {
+      const query = searchQuery.value.trim();
+      if (!query) return;
+      
+      console.log(`Performing search for: "${query}", Triggered by route: ${isRouteTriggered}`);
+      
+      try {
+        if (!isRouteTriggered) {
+          console.log('Saving search history (direct user action)');
+          await api.saveSearchHistory(query);
+        } else {
+          console.log('Skipping search history save (triggered by route change)');
+        }
+        
+        isSearching.value = true;
+        searchResults.value = [];
+        
+        const searchPayload = { query: query }; 
+        const results = await api.searchPapers(searchPayload);
+        
+        // Adjust based on actual API response structure
+        searchResults.value = Array.isArray(results) ? results : (results?.results || []);
+        
+        if (!isRouteTriggered && route.query.q !== query) {
+          router.replace({ query: { ...route.query, q: query } }).catch(err => {});
+        }
+        
+      } catch (error) {
+        console.error('Error performing search:', error);
+        searchResults.value = [];
+      } finally {
+        isSearching.value = false;
+      }
+    };
+
+    // Reset search state
+    const resetSearch = () => {
+      searchQuery.value = '';
+      searchResults.value = [];
+      isSearching.value = false;
+      if (route.query.q) {
+        router.replace({ query: { ...route.query, q: undefined } }).catch(err => {});
+      }
+    };
+
+    // --- Define other async loading methods ---
+    // Load recent papers
     const loadPapers = async () => {
       try {
         isLoading.value = true;
         papers.value = await api.getRecentPapers(limit.value, 0);
         offset.value = papers.value.length;
-        
-        // Get total paper count
         paperCount.value = await api.countPapers();
-        
-        // Check if we have more papers
         hasMorePapers.value = papers.value.length < (paperCount.value || 0);
-      } catch (error) {
-        console.error('Error loading papers:', error);
-      } finally {
-        isLoading.value = false;
-      }
+      } catch (error) { console.error('Error loading papers:', error); }
+      finally { isLoading.value = false; }
     };
     
-    // 保存滚动位置
+    // Load recommended papers
+    const loadRecommendedPapers = async () => {
+      try {
+        isLoadingRecommended.value = true;
+        recommendedPapers.value = await api.getRecommendedPapers(limit.value);
+        recommendedOffset.value = recommendedPapers.value.length;
+        hasMoreRecommended.value = recommendedPapers.value.length === limit.value;
+      } catch (error) { console.error('Error loading recommended papers:', error); recommendedPapers.value = []; }
+      finally { isLoadingRecommended.value = false; }
+    };
+
+    // Load more recent papers
+    const loadMoreRecent = async () => {
+      try {
+        isLoadingMoreRecent.value = true;
+        const morePapers = await api.getRecentPapers(limit.value, offset.value);
+        papers.value = [...papers.value, ...morePapers];
+        offset.value += morePapers.length;
+        hasMorePapers.value = morePapers.length === limit.value;
+      } catch (error) { console.error('Error loading more recent papers:', error); }
+      finally { isLoadingMoreRecent.value = false; }
+    };
+    
+    // Load more recommended papers
+    const loadMoreRecommended = async () => {
+      try {
+        isLoadingMoreRecommended.value = true;
+        const moreRecommendedPapers = await api.getRecommendedPapers(limit.value, recommendedOffset.value);
+        recommendedPapers.value = [...recommendedPapers.value, ...moreRecommendedPapers];
+        recommendedOffset.value += moreRecommendedPapers.length;
+        hasMoreRecommended.value = moreRecommendedPapers.length === limit.value;
+      } catch (error) { console.error('Error loading more recommended papers:', error); }
+      finally { isLoadingMoreRecommended.value = false; }
+    };
+
+    // --- Define Lifecycle Hooks and Watchers Last ---
+    // Watch for route query parameter changes
+    watch(
+      () => route.query.q,
+      (newQuery, oldQuery) => {
+        const newQueryStr = typeof newQuery === 'string' ? newQuery : '';
+        const oldQueryStr = typeof oldQuery === 'string' ? oldQuery : '';
+        
+        // Now performSearch is guaranteed to be initialized
+        if (newQueryStr && newQueryStr !== oldQueryStr && newQueryStr !== searchQuery.value) {
+          console.log('Route query changed, triggering search:', newQueryStr);
+          searchQuery.value = newQueryStr;
+          performSearch(true); // Call the already defined function
+        } else if (!newQueryStr && searchResults.value.length > 0) {
+          console.log('Route query removed, resetting search.');
+          resetSearch(); // Call the already defined function
+        }
+      },
+      { immediate: true } // Runs immediately, calling the defined performSearch/resetSearch
+    );
+    
+    // Save/Restore scroll position (can stay here or move earlier)
     const saveScrollPosition = () => {
       const path = router.currentRoute.value.fullPath;
       sessionStorage.setItem(`scrollPos-${path}`, window.scrollY.toString());
     };
-    
-    // 恢复滚动位置
     const restoreScrollPosition = () => {
       const path = router.currentRoute.value.fullPath;
       const savedPosition = sessionStorage.getItem(`scrollPos-${path}`);
@@ -122,69 +273,39 @@ export default defineComponent({
         });
       }
     };
-    
-    // 当组件被重新激活时
-    const onActivated = () => {
-      restoreScrollPosition();
-    };
-    
-    // 当组件被停用时
-    const onDeactivated = () => {
-      saveScrollPosition();
-    };
-    
-    // 加载更多最近论文
-    const loadMore = async () => {
-      try {
-        isLoadingMore.value = true;
-        const morePapers = await api.getRecentPapers(limit.value, offset.value);
-        papers.value = [...papers.value, ...morePapers];
-        offset.value += morePapers.length;
-        
-        // Check if we have more papers
-        hasMorePapers.value = morePapers.length === limit.value;
-      } catch (error) {
-        console.error('Error loading more papers:', error);
-      } finally {
-        isLoadingMore.value = false;
+    const onActivated = () => { restoreScrollPosition(); };
+    const onDeactivated = () => { saveScrollPosition(); };
+
+    onMounted(() => {
+      // Check initial route query on mount - performSearch is now defined
+      if (route.query.q && typeof route.query.q === 'string') {
+        if (searchQuery.value !== route.query.q) {
+           searchQuery.value = route.query.q;
+           performSearch(true); 
+        }
+      } else {
+        // Load initial data only if not searching
+        loadPapers();
+        loadRecommendedPapers();
       }
-    };
-    
-    // 导航到搜索页面
-    const navigateToSearch = () => {
-      if (searchQuery.value.trim()) {
-        router.push({
-          name: 'search',
-          query: { q: searchQuery.value }
-        });
-      }
-    };
-    
-    // 初始化
-    onMounted(async () => {
-      await loadPapers();
+      // Restore scroll position on initial mount too, if needed
+      // restoreScrollPosition(); 
     });
     
+    // --- Return all refs and methods ---
     return {
-      // 最近论文数据
-      papers,
-      paperCount,
-      isLoading,
-      isLoadingMore,
-      hasMorePapers,
-      loadMore,
-      
-      // 搜索相关数据
-      searchQuery,
-      navigateToSearch,
-      
-      // 生命周期钩子
-      onActivated,
-      onDeactivated
+      papers, paperCount, isLoading, 
+      isLoadingMoreRecent, loadMoreRecent,
+      isLoadingMoreRecommended, loadMoreRecommended,
+      offset, limit, hasMorePapers,
+      recommendedPapers, isLoadingRecommended, hasMoreRecommended,
+      searchQuery, searchResults, isSearching, showSearchResults,
+      performSearch, resetSearch,
+      onActivated, onDeactivated
     };
   },
   
-  // 组件激活和停用钩子
+  // Component activation and deactivation hooks
   activated() {
     this.onActivated();
   },
@@ -207,19 +328,7 @@ export default defineComponent({
   margin-bottom: 2rem;
 }
 
-.hero-section h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1rem;
-  color: #3f51b5;
-}
-
-.hero-section p {
-  font-size: 1.2rem;
-  margin-bottom: 2rem;
-  color: #555;
-}
-
-/* 搜索容器样式 */
+/* Search container styles */
 .search-container {
   background-color: white;
   border-radius: 8px;
@@ -314,15 +423,50 @@ export default defineComponent({
   cursor: not-allowed;
 }
 
-.recent-papers {
+.papers-container {
+  display: flex;
+  gap: 3rem;
   margin-bottom: 3rem;
+  position: relative;
 }
 
-.recent-papers h2 {
+.papers-container::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #eee;
+  transform: translateX(-50%);
+}
+
+.recent-papers, .recommended-papers {
+  flex: 1;
+  margin-bottom: 2rem;
+  min-width: 0;
+  max-width: calc(50% - 1.5rem);
+  padding-right: 0.5rem;
+  padding-left: 0.5rem;
+  box-sizing: border-box;
+}
+
+.recent-papers h2, .recommended-papers h2 {
   margin-bottom: 1.5rem;
   color: #333;
   border-bottom: 1px solid #eee;
   padding-bottom: 0.75rem;
+  font-size: 1.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.papers-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  overflow: hidden;
 }
 
 .loading, .no-papers {
@@ -334,7 +478,53 @@ export default defineComponent({
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.load-more {
+.section-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+/* 响应式布局调整 */
+@media (max-width: 960px) {
+  .papers-container {
+    flex-direction: column;
+  }
+
+  .papers-container::after {
+    display: none;
+  }
+  
+  .recent-papers, .recommended-papers {
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+  }
+}
+
+/* Search Results Styles */
+.search-results-section {
+  margin-bottom: 2rem;
+}
+
+.search-results-section h2 {
+  margin-bottom: 1rem;
+  color: #3f51b5;
+}
+
+.no-results {
+  text-align: center;
+  padding: 2rem;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.no-results p {
+  margin-bottom: 1rem;
+  color: #666;
+}
+
+.search-actions {
   display: flex;
   justify-content: center;
   margin-top: 2rem;

@@ -3,13 +3,14 @@
     <header class="app-header">
       <nav>
         <router-link to="/">Home</router-link>
+        <router-link to="/history">History</router-link>
       </nav>
     </header>
     
     <main class="app-content">
       <router-view v-slot="{ Component }">
-        <keep-alive :include="['HomeView', 'SearchView']">
-          <component :is="Component" />
+        <keep-alive :include="['HomeView']" :max="5">
+          <component :is="Component" :key="$route.fullPath" />
         </keep-alive>
       </router-view>
     </main>
@@ -22,6 +23,7 @@
 <script>
 import { defineComponent, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import userService from './services/user'
 
 export default defineComponent({
   name: 'App',
@@ -41,6 +43,9 @@ export default defineComponent({
     onMounted(() => {
       // 添加全局导航钩子
       router.beforeEach(saveScrollPositionBeforeLeave);
+      
+      // 确保用户ID已初始化
+      userService.getUserId();
     });
     
     onUnmounted(() => {

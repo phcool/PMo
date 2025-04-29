@@ -126,6 +126,9 @@ export default {
       this.results = []  // Clear previous results
       
       try {
+        // Save search history
+        api.saveSearchHistory(this.searchQuery.trim())
+        
         // Use the API service with POST method
         const data = await api.searchPapers({
           query: this.searchQuery.trim()

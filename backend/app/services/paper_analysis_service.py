@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import time
 import os
 import json
@@ -12,6 +12,7 @@ from datetime import datetime
 from app.models.paper import Paper, PaperAnalysis
 from app.services.db_service import db_service
 from app.services.llm_service import llm_service
+from openai.types.chat import ChatCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -176,302 +177,417 @@ def clean_text_for_api(text: str) -> str:
     
     return text
 
+# --- 辅助函数：用于解析和清理 LLM 返回的 JSON --- 
+def _parse_and_clean_llm_response(json_string: str, paper_id: str) -> Optional[Dict[str, Any]]:
+    """解析LLM返回的JSON字符串并进行数据清洗"""
+    try:
+        analysis_data = json.loads(json_string)
+        
+        # 数据清洗：确保所有字段都是字符串，并将列表/字典转为合适的字符串格式
+        def clean_value(value):
+            if isinstance(value, list):
+                clean_list = []
+                for item in value:
+                    if isinstance(item, str):
+                        item = item.strip()
+                        # 尝试添加项目符号，如果不是已经有的话
+                        if item and not re.match(r'^[-*•\d+\.\)]\s*', item):
+                             item = "• " + item
+                    clean_list.append(str(item))
+                return '\n'.join(clean_list)
+            elif isinstance(value, dict):
+                formatted_items = []
+                for k, v in value.items():
+                    if isinstance(v, str):
+                        v = v.strip()
+                    formatted_items.append(f"{k}: {v}")
+                return '\n'.join(formatted_items)
+            elif isinstance(value, str):
+                return value.replace('\\n', '\n') # 替换转义的换行符
+            return str(value) # 其他类型转为字符串
+
+        cleaned_data = {}
+        expected_keys = ["summary", "key_findings", "contributions", "methodology", "limitations", "future_work", "keywords"]
+        for k in expected_keys:
+            v = analysis_data.get(k) # 使用 .get 避免 KeyError
+            if v is not None:
+                original_type = type(v).__name__
+                cleaned_v = clean_value(v)
+                cleaned_type = type(cleaned_v).__name__
+                # 进一步清理字符串：替换连续换行，统一数字列表格式
+                if isinstance(cleaned_v, str):
+                     cleaned_v = cleaned_v.replace('\\n', '\n')
+                     cleaned_v = re.sub(r'\n{3,}', '\n\n', cleaned_v) 
+                     cleaned_v = re.sub(r'^(\d+)\)([\s])', r'\1.\2', cleaned_v, flags=re.MULTILINE)
+                     cleaned_v = cleaned_v.strip()
+                cleaned_data[k] = cleaned_v
+                # if original_type != cleaned_type:
+                #     logger.info(f"Paper {paper_id}: 字段 {k} 类型从 {original_type} 转换为 {cleaned_type}")
+            else:
+                 cleaned_data[k] = None # 确保所有预期键都存在
+                 logger.warning(f"Paper {paper_id}: LLM 响应缺少字段 '{k}'")
+
+        return cleaned_data
+       
+    except json.JSONDecodeError as e:
+        logger.error(f"无法将LLM响应解析为JSON for {paper_id}: {e}")
+        logger.debug(f"原始响应文本 for {paper_id}: {json_string}")
+        return None
+    except Exception as e:
+        logger.error(f"解析和清理LLM响应时发生意外错误 for {paper_id}: {e}")
+        return None
+# ----------------------------------------------
+
 class PaperAnalysisService:
     """
-    论文分析服务，负责协调PDF分析任务
+    论文分析服务，负责协调PDF提取、LLM调用和结果保存
     """
     
     def __init__(self):
         """初始化论文分析服务"""
         self.is_analyzing = False
         self.current_task = None
-        self.batch_size = 5  # 每批处理的论文数
+        self.batch_size = int(os.getenv("ANALYSIS_BATCH_SIZE", "5")) # 从环境变量获取批处理大小
+        # Max chars for LLM input (adjust per model, e.g., qwen-turbo 8k context -> ~24k chars)
+        self.max_llm_input_chars = int(os.getenv("LLM_MAX_INPUT_CHARS", "24000"))
     
-    async def extract_text_from_pdf(self, pdf_url: str) -> Optional[str]:
+    async def _extract_text_from_pdf(self, paper_id: str, pdf_url: str) -> Optional[Tuple[str, int]]:
         """
-        从PDF URL提取文本内容，使用PyMuPDF高性能库
+        从PDF URL提取文本内容，并计算字数。
         
-        Args:
-            pdf_url: PDF的URL
-            
         Returns:
-            提取的文本内容或None（如果提取失败）
+            一个元组 (提取的文本内容, 字数) 或 None (如果提取失败)
         """
         start_time = time.time()
         try:
-            logger.info(f"开始下载PDF: {pdf_url}")
+            logger.info(f"开始下载PDF for {paper_id}: {pdf_url}")
             
-            async with aiohttp.ClientSession() as session:
+            # 设置合理的超时，例如 60 秒
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(pdf_url) as response:
                     if response.status != 200:
-                        logger.error(f"下载PDF失败 {pdf_url}, 状态码: {response.status}")
+                        logger.error(f"下载PDF失败 for {paper_id} ({pdf_url}), 状态码: {response.status}")
                         return None
                     
                     pdf_content = await response.read()
                     download_time = time.time() - start_time
-                    logger.info(f"PDF下载完成，大小: {len(pdf_content)/1024:.1f} KB, 耗时: {download_time:.2f} 秒")
+                    logger.info(f"PDF下载完成 for {paper_id}，大小: {len(pdf_content)/1024:.1f} KB, 耗时: {download_time:.2f} 秒")
             
             # 使用PyMuPDF提取文本
             extraction_start = time.time()
             text = ""
+            word_count = 0
             
             try:
+                # 增加内存使用提示和处理大型PDF的策略
+                # PyMuPDF 通常内存效率较高，但超大文件仍可能出问题
                 with fitz.open(stream=pdf_content, filetype="pdf") as doc:
-                    # 获取总页数
                     total_pages = len(doc)
-                    logger.info(f"PDF共 {total_pages} 页")
+                    logger.info(f"PDF共 {total_pages} 页 for {paper_id}")
                     
-                    # 提取前15页（或全部页面如果少于15页）
-                    max_pages = min(15, total_pages)
+                    # 提取前 N 页 (例如 15 页)
+                    max_pages_to_extract = int(os.getenv("PDF_EXTRACT_MAX_PAGES", "15"))
+                    pages_to_process = min(max_pages_to_extract, total_pages)
                     
-                    # 高效提取文本
-                    for i in range(max_pages):
-                        page = doc.load_page(i)
-                        # 获取纯文本，不包括表格结构
-                        page_text = page.get_text("text")
-                        if page_text:
-                            text += page_text + "\n\n"
+                    extracted_texts = []
+                    for i in range(pages_to_process):
+                        try:
+                            page = doc.load_page(i)
+                            page_text = page.get_text("text") 
+                            if page_text:
+                                extracted_texts.append(page_text.strip()) 
+                        except Exception as page_error:
+                             logger.warning(f"提取PDF页面 {i+1}/{total_pages} 出错 for {paper_id}: {page_error}")
+                             continue # 跳过出错页面
+                            
+                    text = "\n\n".join(extracted_texts) # 使用双换行符分隔页面
                 
                 extraction_time = time.time() - extraction_start
-                logger.info(f"PDF文本提取完成，提取了 {max_pages}/{total_pages} 页, 耗时: {extraction_time:.2f} 秒")
+                logger.info(f"PDF文本提取完成 for {paper_id}，提取了 {pages_to_process}/{total_pages} 页, 耗时: {extraction_time:.2f} 秒")
                 
-                # 限制文本长度
-                max_length = 50000  # 字符数
-                original_length = len(text)
-                if len(text) > max_length:
-                    text = text[:max_length] + "...[截断]"
-                    logger.info(f"文本已截断，从 {original_length} 字符截断到 {max_length} 字符")
-                
-                # 清理文本以防止编码问题
-                text = clean_text_for_api(text)
+                # 注意：文本清理 (clean_text_for_api) 现在由 llm_service 处理
+                # 文本长度限制也移至 llm_service
                 
                 total_time = time.time() - start_time
-                logger.info(f"PDF处理完成 {pdf_url}, 总耗时: {total_time:.2f} 秒, 提取文本长度: {len(text)} 字符")
-                return text
+                logger.info(f"PDF处理完成 {paper_id} ({pdf_url}), 总耗时: {total_time:.2f} 秒, 提取文本长度: {len(text)} 字符")
                 
-            except fitz.FileDataError as e:
-                logger.error(f"PyMuPDF无法解析PDF文件 {pdf_url}: {e}")
+                # Calculate word count after joining pages
+                if text:
+                     word_count = len(text.split()) 
+                
+                return text, word_count
+                
+            except fitz.fitz.FileDataError as fe:
+                 logger.error(f"PyMuPDF无法打开或处理PDF数据 for {paper_id}: {fe}")
+                 return None
+            except Exception as e_fitz:
+                logger.error(f"PyMuPDF提取文本时出错 for {paper_id}: {e_fitz.__class__.__name__} - {e_fitz}")
                 return None
                 
-        except Exception as e:
-            total_time = time.time() - start_time
-            logger.error(f"提取PDF文本时出错 {pdf_url}: {e}, 耗时: {total_time:.2f} 秒")
+        except asyncio.TimeoutError:
+             logger.error(f"下载PDF超时 for {paper_id} ({pdf_url})")
+             return None
+        except aiohttp.ClientError as e_http:
+             logger.error(f"下载PDF时发生客户端错误 for {paper_id} ({pdf_url}): {e_http}")
+             return None
+        except Exception as e_main:
+            logger.error(f"提取PDF文本过程中发生意外错误 for {paper_id} ({pdf_url}): {e_main}")
             return None
     
-    async def analyze_pdf(self, paper_id: str, pdf_url: str) -> Optional[PaperAnalysis]:
+    async def _generate_llm_analysis_json(self, paper_id: str, text: str) -> Optional[str]:
         """
-        分析PDF内容
+        准备文本、构建prompt、调用通用LLM服务并获取原始JSON响应字符串。
+        """
+        # 1. 清理文本 (使用本文件内的函数)
+        cleaned_text = clean_text_for_api(text)
         
-        Args:
-            paper_id: 论文ID
-            pdf_url: PDF的URL
-            
-        Returns:
-            分析结果或None（如果分析失败）
-        """
+        # 2. 检查和截断文本长度
+        if not cleaned_text or len(cleaned_text) < 50:
+             logger.warning(f"论文 {paper_id} 清理后的文本过短或为空，无法进行分析。")
+             return None
+             
+        if len(cleaned_text) > self.max_llm_input_chars:
+             logger.warning(f"论文 {paper_id} 清理后文本长度 {len(cleaned_text)} 超过限制 {self.max_llm_input_chars}，进行截断")
+             cleaned_text = cleaned_text[:self.max_llm_input_chars] + "... [Input Truncated]"
+        
+        # 3. 构建 Prompt 和 Messages (现在在这里定义)
+        system_prompt = "You are an expert academic paper analyst, focused on providing objective, accurate, and strictly JSON-formatted paper analysis. All JSON fields must be simple strings, never nested objects or arrays."
+        user_prompt = f"""Please analyze the following paper content and provide a structured analysis.
+
+Paper Content:
+{cleaned_text}
+
+Please provide analysis in the following aspects:
+1. Summary: Brief overview of the paper's main content and contributions.
+2. Key Findings: List the main findings and conclusions of the paper.
+3. Contributions: What are the paper's main contributions to the field?
+4. Methodology: What methods were used in the paper?
+5. Limitations: What are the limitations of the paper's methods or results?
+6. Future Work: What future research directions does the paper suggest?
+7. Keywords: Extract 5-10 important technical keywords or phrases from the paper. Focus on specific technical terms, methods, datasets, or concepts that best represent the paper's content.
+
+Please output the result strictly in JSON format without any explanatory text or prefix, following this structure:
+{{
+  "summary": "Paper summary",
+  "key_findings": "Key findings",
+  "contributions": "Main contributions",
+  "methodology": "Methodology used",
+  "limitations": "Limitations",
+  "future_work": "Future work",
+  "keywords": "keyword1, keyword2, keyword3, ..."
+}}
+
+IMPORTANT: Each field must be a simple string. Use line breaks within the string for lists if needed.
+For keywords, provide a comma-separated list.
+If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        # 4. 调用通用的LLM服务
         try:
-            # 提取文本
-            text = await self.extract_text_from_pdf(pdf_url)
-            if not text:
-                logger.error(f"无法从PDF提取文本: {pdf_url}")
-                return None
+            logger.info(f"调用 LLM 服务进行分析: {paper_id} (文本长度: {len(cleaned_text)}) ")
+            completion = await llm_service.get_chat_completion(
+                messages=messages,
+                # 使用 llm_service 中的默认模型、温度、max_tokens，但指定 JSON 输出
+                response_format={"type": "json_object"} 
+            )
             
-            # --- 文本预处理：移除致谢和参考文献 --- 
-            logger.info(f"原始提取文本长度: {len(text)}")
-            processed_text = text
-            section_to_remove = None
-            
-            # 查找常见的参考文献/致谢标题 (忽略大小写)
-            # 从后往前找，因为参考文献通常在最后
-            keywords_references = ["references", "bibliography"]
-            keywords_acknowledgements = ["acknowledgments", "acknowledgements"]
-            
-            combined_keywords = keywords_references + keywords_acknowledgements
-            
-            # 将文本按行分割，更容易匹配标题
-            lines = text.splitlines()
-            found_section_line_index = -1
-            
-            # 从后往前查找标题行
-            for i in range(len(lines) - 1, -1, -1):
-                line_lower = lines[i].strip().lower()
-                # 检查是否是常见的标题格式 (例如，单独一行，或以数字/字母开头)
-                is_potential_title = (lines[i].strip() == line_lower.title() or 
-                                      line_lower.startswith(tuple(f"{j}." for j in range(10))) or 
-                                      line_lower.startswith(tuple(f"{chr(ord('a')+j)}." for j in range(26))))
-                
-                for keyword in combined_keywords:
-                    # 匹配单独成行的标题或以关键字开头的行
-                    if line_lower == keyword or (is_potential_title and keyword in line_lower):
-                        found_section_line_index = i
-                        section_to_remove = keyword # 记录找到的关键字
-                        break # 找到第一个就停止
-                if found_section_line_index != -1:
-                    break
-                    
-            if found_section_line_index != -1:
-                logger.info(f"找到疑似章节 '{section_to_remove}' 于第 {found_section_line_index + 1} 行，进行截断。")
-                # 只保留该行之前的内容
-                processed_text = "\n".join(lines[:found_section_line_index])
-                logger.info(f"处理后文本长度: {len(processed_text)}")
+            # 5. 处理响应
+            if completion and completion.choices and completion.choices[0].message:
+                response_content = completion.choices[0].message.content
+                if response_content:
+                    logger.info(f"成功从 LLM 获取到分析响应 for {paper_id}")
+                    return response_content
+                else:
+                    logger.error(f"LLM 响应内容为空 for {paper_id}")
+                    return None
             else:
-                logger.info("未找到明确的致谢或参考文献标题进行移除。")
-            # --- 预处理结束 ---
-            
-            # 再次清理文本确保没有编码问题
-            processed_text = clean_text_for_api(processed_text)
-            
-            # 使用LLM服务分析处理后的文本
-            return await llm_service.analyze_paper_text(paper_id, processed_text)
-            
+                logger.error(f"无法从LLM响应中提取有效内容 for {paper_id}")
+                if completion:
+                     logger.debug(f"原始 LLM 响应对象 for {paper_id}: {completion.model_dump_json()}")
+                return None
+                
         except Exception as e:
-            logger.error(f"分析PDF时发生意外错误 {pdf_url}: {e}")
-            return None
-        
+             # Handle potential errors during the call or response processing within this service
+             logger.error(f"在调用LLM或处理其响应时出错 for {paper_id}: {e.__class__.__name__} - {e}")
+             return None
+
     async def analyze_paper(self, paper_id: str) -> Optional[PaperAnalysis]:
         """
-        分析单篇论文
-        
-        Args:
-            paper_id: 论文ID
-            
-        Returns:
-            分析结果或None（如果分析失败）
+        分析单篇论文：获取信息 -> 提取文本 -> 保存文本+字数 -> 调用LLM -> 解析结果 -> 保存分析
         """
+        logger.info(f"[{paper_id}] 开始分析论文")
+        
+        # 1. 检查分析是否已存在
+        existing_analysis = await db_service.get_paper_analysis(paper_id)
+        if existing_analysis:
+            logger.info(f"[{paper_id}] 分析已存在，跳过")
+            return existing_analysis
+        
+        # 2. 获取论文信息 (需要 PDF URL)
+        paper = await db_service.get_paper_by_id(paper_id)
+        if not paper:
+            logger.error(f"[{paper_id}] 未找到论文，无法分析")
+            return None
+        if not paper.pdf_url:
+             logger.error(f"[{paper_id}] 缺少 PDF URL，无法分析")
+             return None
+
+        # 3. 提取 PDF 文本 和 字数
+        logger.info(f"[{paper_id}] 开始提取 PDF 文本: {paper.pdf_url}")
+        extraction_result = await self._extract_text_from_pdf(paper_id, paper.pdf_url)
+        
+        if extraction_result is None:
+            logger.error(f"[{paper_id}] 提取 PDF 文本失败")
+            return None
+        
+        extracted_text, word_count = extraction_result # Unpack the tuple
+        logger.info(f"[{paper_id}] PDF 文本提取完成，长度: {len(extracted_text)} 字符, 字数: {word_count}")
+        
+        # 4. 保存提取的文本和字数到数据库 
+        if extracted_text: 
+             logger.info(f"[{paper_id}] 尝试保存提取的文本和字数 ({word_count}) 到数据库...")
+             # Pass word_count to the save function
+             save_text_success = await db_service.save_or_update_extracted_text(paper_id, extracted_text, word_count)
+             if save_text_success:
+                  logger.info(f"[{paper_id}] 成功保存提取的文本和字数")
+             else:
+                  logger.error(f"[{paper_id}] 保存提取的文本到数据库失败，但将继续尝试分析")
+        else:
+             logger.warning(f"[{paper_id}] 提取的文本为空，不保存到数据库，中止分析")
+             return None
+        
+        # 5. 调用 LLM 服务生成分析 JSON 字符串 
+        logger.info(f"[{paper_id}] 开始调用 LLM 服务生成分析...")
+        analysis_json_string = await self._generate_llm_analysis_json(paper_id, extracted_text)
+        if not analysis_json_string:
+             logger.error(f"[{paper_id}] LLM 未能生成分析 JSON")
+             return None
+             
+        # 6. 解析和清理 LLM 返回的 JSON 
+        logger.info(f"[{paper_id}] 开始解析和清理 LLM 响应...")
+        cleaned_analysis_data = _parse_and_clean_llm_response(analysis_json_string, paper_id)
+        if not cleaned_analysis_data:
+             logger.error(f"[{paper_id}] 解析或清理 LLM 分析结果失败")
+             return None
+             
+        # 7. 创建 PaperAnalysis 对象
+        logger.info(f"[{paper_id}] 准备创建分析对象...")
         try:
-            # 获取论文详情
-            paper = await db_service.get_paper_by_id(paper_id)
-            if not paper:
-                logger.error(f"论文不存在: {paper_id}")
-                return None
-            
-            # 检查是否已有分析
-            existing_analysis = await db_service.get_paper_analysis(paper_id)
-            if existing_analysis:
-                logger.info(f"论文已有分析结果: {paper_id}")
-                return existing_analysis
-            
-            # 分析PDF
-            analysis = await self.analyze_pdf(paper_id, paper.pdf_url)
-            if not analysis:
-                logger.error(f"分析论文失败: {paper_id}")
-                return None
-            
-            # 保存分析结果
-            success = await db_service.save_paper_analysis(analysis)
-            if not success:
-                logger.error(f"保存分析结果失败: {paper_id}")
-                return None
-            
-            return analysis
-            
+            now = datetime.now()
+            new_analysis = PaperAnalysis(
+                paper_id=paper_id,
+                summary=cleaned_analysis_data.get("summary"),
+                key_findings=cleaned_analysis_data.get("key_findings"),
+                contributions=cleaned_analysis_data.get("contributions"),
+                methodology=cleaned_analysis_data.get("methodology"),
+                limitations=cleaned_analysis_data.get("limitations"),
+                future_work=cleaned_analysis_data.get("future_work"),
+                keywords=cleaned_analysis_data.get("keywords"),
+                created_at=now,
+                updated_at=now
+            )
         except Exception as e:
-            logger.error(f"分析论文时出错: {e}")
+             logger.error(f"[{paper_id}] 创建 PaperAnalysis 对象失败: {e}", exc_info=True)
+             return None
+
+        # 8. 保存分析结果到数据库 
+        logger.info(f"[{paper_id}] 尝试保存最终分析结果到数据库...")
+        save_analysis_success = await db_service.save_paper_analysis(new_analysis)
+        if save_analysis_success:
+            logger.info(f"[{paper_id}] 成功保存分析结果到数据库")
+            return new_analysis
+        else:
+            logger.error(f"[{paper_id}] 保存分析结果到数据库失败")
             return None
     
     async def analyze_pending_papers(self) -> Dict[str, Any]:
         """
-        分析待处理的论文
-        
-        Returns:
-            分析统计信息
+        分析一批待处理的论文
         """
         if self.is_analyzing:
-            return {
-                "status": "in_progress",
-                "message": "已有分析任务正在进行中"
-            }
-        
+            logger.info("分析任务已在运行中")
+            return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
+
+        self.is_analyzing = True
+        start_time = time.time()
+        processed_count = 0
+        failed_count = 0
+        total_pending = 0
+
         try:
-            self.is_analyzing = True
-            start_time = time.time()
+            logger.info(f"开始批量分析任务，批大小: {self.batch_size}")
+            pending_papers = await db_service.get_papers_without_analysis(limit=self.batch_size)
+            total_pending = len(pending_papers)
+            logger.info(f"找到 {total_pending} 篇待分析的论文")
             
-            # 获取未分析的论文
-            papers = await db_service.get_papers_without_analysis(self.batch_size)
-            if not papers:
-                self.is_analyzing = False
-                return {
-                    "status": "completed",
-                    "message": "没有待分析的论文",
-                    "processed": 0,
-                    "successful": 0,
-                    "failed": 0,
-                    "duration_seconds": time.time() - start_time
-                }
+            if not pending_papers:
+                logger.info("没有需要分析的论文")
+                return {"status": "no_pending", "message": "No papers found needing analysis.", "processed": 0, "failed": 0}
+
+            analysis_tasks = []
+            for paper in pending_papers:
+                # 为每篇论文创建一个分析任务
+                analysis_tasks.append(self.analyze_paper(paper.paper_id))
             
-            logger.info(f"开始分析 {len(papers)} 篇论文")
+            # 并发执行分析任务
+            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
             
-            # 处理每篇论文
-            successful = 0
-            failed = 0
+            # 处理结果
+            for result in results:
+                if isinstance(result, PaperAnalysis):
+                    processed_count += 1
+                elif isinstance(result, Exception):
+                    logger.error(f"批量分析中遇到错误: {result}")
+                    failed_count += 1
+                else: # 分析失败返回 None
+                    failed_count += 1
             
-            for paper in papers:
-                try:
-                    analysis = await self.analyze_pdf(paper.paper_id, paper.pdf_url)
-                    if analysis:
-                        success = await db_service.save_paper_analysis(analysis)
-                        if success:
-                            successful += 1
-                            logger.info(f"成功分析论文: {paper.paper_id}")
-                        else:
-                            failed += 1
-                            logger.error(f"保存分析结果失败: {paper.paper_id}")
-                    else:
-                        failed += 1
-                        logger.error(f"分析论文失败: {paper.paper_id}")
-                except Exception as e:
-                    failed += 1
-                    logger.error(f"处理论文时出错: {paper.paper_id}, 错误: {e}")
+            duration = time.time() - start_time
+            logger.info(f"批量分析任务完成. 总耗时: {duration:.2f} 秒. 成功: {processed_count}, 失败: {failed_count}")
             
-            end_time = time.time()
-            duration = end_time - start_time
-            
-            result = {
-                "status": "completed",
-                "message": f"完成分析 {len(papers)} 篇论文",
-                "processed": len(papers),
-                "successful": successful,
-                "failed": failed,
-                "duration_seconds": duration
+            return {
+                "status": "completed", 
+                "message": f"Batch analysis finished.",
+                "total_pending_before": total_pending,
+                "processed": processed_count, 
+                "failed": failed_count,
+                "duration_seconds": round(duration, 2)
             }
-            
-            logger.info(f"分析任务完成: {result}")
-            return result
             
         except Exception as e:
-            logger.error(f"分析待处理论文时出错: {e}")
-            return {
-                "status": "error",
-                "message": f"分析论文时出错: {str(e)}",
-                "processed": 0,
-                "successful": 0,
-                "failed": 0,
-                "duration_seconds": time.time() - start_time
-            }
+            logger.error(f"批量分析任务失败: {e}", exc_info=True)
+            return {"status": "error", "message": str(e), "processed": processed_count, "failed": failed_count}
         finally:
             self.is_analyzing = False
+            self.current_task = None
     
     async def start_analysis_task(self) -> Dict[str, Any]:
         """
-        启动异步分析任务
-        
-        Returns:
-            任务状态信息
+        异步启动批量论文分析任务
         """
         if self.is_analyzing:
-            return {
-                "status": "in_progress",
-                "message": "已有分析任务正在进行中"
-            }
+            logger.info("分析任务已在运行中，无法启动新的任务")
+            return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
+
+        logger.info("准备启动后台批量分析任务")
+        self.is_analyzing = True # 标记任务开始
         
-        # 创建异步任务
-        self.current_task = asyncio.create_task(self.analyze_pending_papers())
+        # 使用 asyncio.create_task 在后台运行 analyze_pending_papers
+        # 将任务对象保存起来，如果需要的话可以用于查询状态或取消
+        self.current_task = asyncio.create_task(self.analyze_pending_papers(), name=f"paper_analysis_task_{datetime.now():%Y%m%d_%H%M%S}")
+        
+        logger.info(f"后台批量分析任务已启动: {self.current_task.get_name()}")
         
         return {
-            "status": "started",
-            "message": "已启动论文分析任务",
-            "timestamp": datetime.now().isoformat()
+            "status": "started", 
+            "message": "Background analysis task started.",
+            "task_id": str(self.current_task.get_name())
         }
 
-# 创建全局实例
+# 创建全局服务实例
 paper_analysis_service = PaperAnalysisService() 

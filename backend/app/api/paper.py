@@ -1,12 +1,15 @@
-from fastapi import APIRouter, HTTPException, Query, Depends, Path, Body
+from fastapi import APIRouter, HTTPException, Query, Depends, Path, Body, Header
 from typing import List, Optional
 import logging
+from datetime import datetime
 
 from app.models.paper import Paper, PaperResponse, PaperAnalysisResponse
 from app.services.db_service import db_service
 from app.services.arxiv_service import ArxivService
 from app.services.scheduler_service import scheduler_service
 from app.services.paper_analysis_service import paper_analysis_service
+from app.services.vector_search_service import vector_search_service
+from app.services.recommendation_service import recommendation_service
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +66,7 @@ async def get_paper(paper_id: str):
             methodology=analysis.methodology,
             limitations=analysis.limitations,
             future_work=analysis.future_work,
+            keywords=analysis.keywords,
             created_at=analysis.created_at,
             updated_at=analysis.updated_at
         ) if analysis else None
@@ -115,6 +119,7 @@ async def get_paper_analysis(paper_id: str):
         methodology=analysis.methodology,
         limitations=analysis.limitations,
         future_work=analysis.future_work,
+        keywords=analysis.keywords,
         created_at=analysis.created_at,
         updated_at=analysis.updated_at
     )
@@ -125,4 +130,27 @@ async def analyze_batch_papers():
     启动批量论文分析任务
     """
     result = await paper_analysis_service.start_analysis_task()
-    return result 
+    return result
+
+@router.get("/recommend/")
+async def get_recommended_papers(
+    limit: int = Query(5, description="推荐论文数量"),
+    offset: int = Query(0, description="推荐论文偏移量"),
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
+):
+    """
+    获取基于用户画像的推荐论文，或为新用户提供热门分类的随机论文
+    """
+    recommended_papers = []
+    
+    if x_user_id:
+        # 尝试获取个性化推荐
+        recommended_papers = await recommendation_service.recommend_papers(user_id=x_user_id, limit=limit, offset=offset)
+        
+    # 如果没有个性化推荐结果 (可能是新用户或历史不足)
+    if not recommended_papers:
+        logger.info(f"用户 {x_user_id or '匿名'} 没有个性化推荐，提供热门分类随机推荐")
+        popular_categories = ["cs.CV", "cs.AI", "cs.LG", "cs.CL"]  # 定义热门分类
+        recommended_papers = await db_service.get_random_papers_by_category(categories=popular_categories, limit=limit, offset=offset)
+        
+    return recommended_papers 

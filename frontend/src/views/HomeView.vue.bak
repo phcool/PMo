@@ -1,0 +1,478 @@
+<template>
+  <div class="home">
+    <div class="header-section">
+      <h1>DL Paper Monitor</h1>
+      
+      <div class="search-box">
+        <input 
+          type="text" 
+          v-model="searchQuery" 
+          placeholder="搜索论文..." 
+          aria-label="搜索论文"
+          @keyup.enter="handleSearch"
+        />
+        <button @click="handleSearch">
+          <font-awesome-icon icon="search" />
+        </button>
+      </div>
+
+      <div class="user-actions">
+        <button class="preferences-button" @click="showPreferences = !showPreferences">
+          <font-awesome-icon icon="cog" /> Settings
+        </button>
+      </div>
+    </div>
+    
+    <!-- 用户偏好设置对话框 -->
+    <div v-if="showPreferences" class="preferences-overlay" @click.self="showPreferences = false">
+      <div class="preferences-dialog">
+        <div class="dialog-header">
+          <button class="close-button" @click="showPreferences = false">
+            <font-awesome-icon icon="times" />
+          </button>
+        </div>
+        <UserPreferences />
+      </div>
+    </div>
+    
+    <div class="hero-section">
+      <h1>DL Paper Monitor</h1>
+      <p>Stay up-to-date with the latest deep learning research papers</p>
+      
+      <!-- 简化的搜索框 -->
+      <div class="search-container">
+        <div class="search-form">
+          <input 
+            v-model="searchQuery" 
+            class="search-input" 
+            placeholder="Search papers..." 
+            @keyup.enter="navigateToSearch" 
+            aria-label="Search papers"
+          />
+          <button @click="navigateToSearch" class="search-button">
+            <font-awesome-icon icon="search" />
+          </button>
+        </div>
+      </div>
+      
+      <div class="paper-count" v-if="paperCount !== null">
+        <p>Currently monitoring <strong>{{ paperCount }}</strong> papers</p>
+      </div>
+    </div>
+    
+    <!-- 最近论文列表 -->
+    <div class="recent-papers">
+      <h2>Recent Papers</h2>
+      
+      <div v-if="isLoading" class="loading">
+        Loading papers...
+      </div>
+      
+      <div v-else-if="papers.length === 0" class="no-papers">
+        <p>No papers found. Our system will automatically fetch new papers periodically.</p>
+      </div>
+      
+      <div v-else class="papers-list">
+        <PaperCard v-for="paper in papers" :key="paper.paper_id" :paper="paper" />
+        
+        <div class="load-more">
+          <button 
+            v-if="hasMorePapers" 
+            @click="loadMore" 
+            :disabled="isLoadingMore"
+            class="secondary-button"
+          >
+            {{ isLoadingMore ? 'Loading...' : 'Load More' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import { defineComponent, ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import PaperCard from '../components/PaperCard.vue'
+import api from '../services/api'
+import UserPreferences from '@/components/UserPreferences.vue'
+
+export default defineComponent({
+  name: 'HomeView',
+  
+  components: {
+    PaperCard,
+    UserPreferences
+  },
+  
+  setup() {
+    const router = useRouter();
+    
+    // 最近论文数据
+    const papers = ref([])
+    const paperCount = ref(null)
+    const isLoading = ref(false)
+    const isLoadingMore = ref(false)
+    const offset = ref(0)
+    const limit = ref(10)
+    const hasMorePapers = ref(true)
+    
+    // 搜索相关数据
+    const searchQuery = ref('')
+    const showPreferences = ref(false)
+    
+    // 加载最近论文
+    const loadPapers = async () => {
+      try {
+        isLoading.value = true;
+        papers.value = await api.getRecentPapers(limit.value, 0);
+        offset.value = papers.value.length;
+        
+        // Get total paper count
+        paperCount.value = await api.countPapers();
+        
+        // Check if we have more papers
+        hasMorePapers.value = papers.value.length < (paperCount.value || 0);
+      } catch (error) {
+        console.error('Error loading papers:', error);
+      } finally {
+        isLoading.value = false;
+      }
+    };
+    
+    // 保存滚动位置
+    const saveScrollPosition = () => {
+      const path = router.currentRoute.value.fullPath;
+      sessionStorage.setItem(`scrollPos-${path}`, window.scrollY.toString());
+    };
+    
+    // 恢复滚动位置
+    const restoreScrollPosition = () => {
+      const path = router.currentRoute.value.fullPath;
+      const savedPosition = sessionStorage.getItem(`scrollPos-${path}`);
+      
+      if (savedPosition) {
+        requestAnimationFrame(() => {
+          window.scrollTo({
+            top: parseInt(savedPosition, 10),
+            behavior: 'instant'
+          });
+        });
+      }
+    };
+    
+    // 当组件被重新激活时
+    const onActivated = () => {
+      restoreScrollPosition();
+    };
+    
+    // 当组件被停用时
+    const onDeactivated = () => {
+      saveScrollPosition();
+    };
+    
+    // 加载更多最近论文
+    const loadMore = async () => {
+      try {
+        isLoadingMore.value = true;
+        const morePapers = await api.getRecentPapers(limit.value, offset.value);
+        papers.value = [...papers.value, ...morePapers];
+        offset.value += morePapers.length;
+        
+        // Check if we have more papers
+        hasMorePapers.value = morePapers.length === limit.value;
+      } catch (error) {
+        console.error('Error loading more papers:', error);
+      } finally {
+        isLoadingMore.value = false;
+      }
+    };
+    
+    // 导航到搜索页面
+    const navigateToSearch = () => {
+      if (searchQuery.value.trim()) {
+        router.push({
+          name: 'search',
+          query: { q: searchQuery.value }
+        });
+      }
+    };
+    
+    // 顶部搜索框处理函数
+    const handleSearch = () => {
+      navigateToSearch();
+    };
+    
+    // 初始化
+    onMounted(async () => {
+      await loadPapers();
+    });
+    
+    return {
+      // 最近论文数据
+      papers,
+      paperCount,
+      isLoading,
+      isLoadingMore,
+      hasMorePapers,
+      loadMore,
+      
+      // 搜索相关数据
+      searchQuery,
+      navigateToSearch,
+      handleSearch,
+      
+      // 生命周期钩子
+      onActivated,
+      onDeactivated,
+      showPreferences
+    };
+  },
+  
+  // 组件激活和停用钩子
+  activated() {
+    this.onActivated();
+  },
+  
+  deactivated() {
+    this.onDeactivated();
+  }
+})
+</script>
+
+<style scoped>
+.home {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+}
+
+.search-box input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-right: 0.5rem;
+}
+
+.search-box button {
+  padding: 0.5rem 1rem;
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.user-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.preferences-button {
+  background-color: transparent;
+  border: 1px solid #3f51b5;
+  color: #3f51b5;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.preferences-button:hover {
+  background-color: #3f51b5;
+  color: white;
+}
+
+.preferences-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.preferences-dialog {
+  background-color: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 550px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px;
+}
+
+.close-button {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #666;
+}
+
+.close-button:hover {
+  color: #333;
+}
+
+.hero-section {
+  text-align: center;
+  padding: 2rem 0;
+  margin-bottom: 2rem;
+}
+
+.hero-section h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  color: #3f51b5;
+}
+
+.hero-section p {
+  font-size: 1.2rem;
+  margin-bottom: 2rem;
+  color: #555;
+}
+
+/* 搜索容器样式 */
+.search-container {
+  background-color: white;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.search-form {
+  display: flex;
+}
+
+.search-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px 0 0 4px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: #3f51b5;
+}
+
+.search-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
+}
+
+.search-button:hover {
+  background-color: #303f9f;
+}
+
+.search-button:disabled {
+  background-color: #c5cae9;
+  cursor: not-allowed;
+}
+
+.paper-count {
+  font-size: 1rem;
+  color: #666;
+}
+
+.primary-button, .secondary-button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.primary-button {
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+}
+
+.primary-button:hover {
+  background-color: #303f9f;
+}
+
+.primary-button:disabled {
+  background-color: #c5cae9;
+  cursor: not-allowed;
+}
+
+.secondary-button {
+  background-color: transparent;
+  color: #3f51b5;
+  border: 1px solid #3f51b5;
+}
+
+.secondary-button:hover {
+  background-color: rgba(63, 81, 181, 0.1);
+}
+
+.secondary-button:disabled {
+  color: #9fa8da;
+  border-color: #9fa8da;
+  cursor: not-allowed;
+}
+
+.recent-papers {
+  margin-bottom: 3rem;
+}
+
+.recent-papers h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.75rem;
+}
+
+.loading, .no-papers {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+</style> 

@@ -6,12 +6,12 @@ import router from './router'
 // Import Font Awesome core
 import { library } from '@fortawesome/fontawesome-svg-core'
 // Import Font Awesome icons
-import { faSearch } from '@fortawesome/free-solid-svg-icons'
+import { faSearch, faCog, faTimes } from '@fortawesome/free-solid-svg-icons'
 // Import Font Awesome component
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 // Add icons to the library
-library.add(faSearch)
+library.add(faSearch, faCog, faTimes)
 
 // Create Vue application
 const app = createApp(App)

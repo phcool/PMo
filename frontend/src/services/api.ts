@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Paper, SearchRequest, SearchResponse, PaperAnalysis } from '@/types/paper';
+import userService from './user';
 
 // Create axios instance
 const api = axios.create({
@@ -8,6 +9,21 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// 添加请求拦截器，在每个请求中添加用户ID
+api.interceptors.request.use(config => {
+  // 获取用户ID
+  const userId = userService.getUserId();
+  
+  // 在请求头中添加用户ID
+  if (userId) {
+    config.headers['X-User-ID'] = userId;
+  }
+  
+  return config;
+}, error => {
+  return Promise.reject(error);
 });
 
 // API functions
@@ -82,6 +98,66 @@ export default {
    */
   async analyzeBatchPapers(): Promise<any> {
     const response = await api.post('/papers/analyze-batch');
+    return response.data;
+  },
+  
+  /**
+   * 获取用户偏好设置
+   */
+  async getUserPreferences(): Promise<any> {
+    const response = await api.get('/user/preferences');
+    return response.data;
+  },
+  
+  /**
+   * 保存用户偏好设置
+   */
+  async saveUserPreferences(preferences: any): Promise<any> {
+    const response = await api.post('/user/preferences', preferences);
+    return response.data;
+  },
+
+  /**
+   * Save user search history
+   */
+  async saveSearchHistory(query: string): Promise<any> {
+    const response = await api.post('/user/search-history', { query });
+    return response.data;
+  },
+  
+  /**
+   * Get user search history
+   */
+  async getUserSearchHistory(): Promise<any> {
+    const response = await api.get('/user/search-history');
+    return response.data;
+  },
+  
+  /**
+   * Get recommended papers based on user search history
+   */
+  async getRecommendedPapers(limit: number = 5, offset: number = 0): Promise<Paper[]> {
+    const response = await api.get('/papers/recommend/', {
+      params: { limit, offset }
+    });
+    return response.data;
+  },
+  
+  /**
+   * 记录用户论文浏览记录
+   */
+  async recordPaperView(paperId: string): Promise<any> {
+    const response = await api.post(`/user/paper-view/${paperId}`);
+    return response.data;
+  },
+  
+  /**
+   * 获取用户论文浏览记录
+   */
+  async getUserPaperViews(limit: number = 20, days: number = 30): Promise<any> {
+    const response = await api.get('/user/paper-views', {
+      params: { limit, days }
+    });
     return response.data;
   }
 }; 

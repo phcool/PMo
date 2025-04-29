@@ -52,7 +52,7 @@
         
         <!-- 分析结果 -->
         <div v-if="paper.analysis" class="paper-analysis">
-          <h2>Analysis</h2>
+          <h2>AI Analysis Results</h2>
           
           <div class="analysis-section" v-if="paper.analysis.summary">
             <h3>Summary</h3>
@@ -91,9 +91,9 @@
             <p>Analyzing paper... This may take several minutes. Please be patient.</p>
             <div class="progress-spinner"></div>
           </div>
-          <button v-else @click="analyzePaper" class="action-button primary">
-            Analyze Paper
-          </button>
+          <div v-else>
+            <p class="no-analysis-message">This paper has not been analyzed yet.</p>
+          </div>
           
           <!-- 分析错误提示 -->
           <div v-if="analysisError" class="analysis-error">
@@ -200,10 +200,19 @@ export default defineComponent({
       }
       
       try {
+        // 获取论文详情
         paper.value = await api.getPaperById(paperId);
+        
+        // 记录论文浏览
+        try {
+          await api.recordPaperView(paperId);
+        } catch (e) {
+          console.error('Error recording paper view:', e);
+          // 不影响主流程，仅记录错误
+        }
       } catch (e) {
-        error.value = 'Failed to load paper details. The paper may not exist.';
-        console.error('Error loading paper:', e);
+        console.error('Error fetching paper details:', e);
+        error.value = 'Failed to fetch paper details. Please try again later.';
       } finally {
         isLoading.value = false;
       }
@@ -451,6 +460,12 @@ export default defineComponent({
 .analyzing {
   color: #3f51b5;
   font-style: italic;
+}
+
+.no-analysis-message {
+  color: #666;
+  font-style: italic;
+  margin: 1rem 0;
 }
 
 /* 分析文本样式 */

@@ -11,7 +11,7 @@ load_dotenv()
 if "HF_ENDPOINT" not in os.environ:
     os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-from app.api import paper, search, scheduler
+from app.api import paper, search, scheduler, user
 from app.services.scheduler_service import scheduler_service
 
 # 配置日志
@@ -42,6 +42,7 @@ app.add_middleware(
 app.include_router(paper.router, prefix="/api/papers", tags=["papers"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(scheduler.router, prefix="/api/scheduler", tags=["scheduler"])
+app.include_router(user.router, prefix="/api/user", tags=["user"])
 
 @app.get("/")
 async def root():
