@@ -10,10 +10,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/preferences", response_model=UserPreferencesResponse)
-async def get_user_preferences(x_user_id: str = Header(..., description="用户唯一标识")):
+async def get_user_preferences(x_user_id: Optional[str] = Header(None, description="用户唯一标识")):
     """
     获取用户偏好设置
     """
+    # 如果没有提供用户ID，返回默认偏好
+    if not x_user_id:
+        return UserPreferencesResponse(
+            user_id="anonymous",
+            preferences={},
+            updated_at=None
+        )
+    
     # 获取用户偏好
     user_prefs = await db_service.get_user_preferences(x_user_id)
     
@@ -31,11 +39,15 @@ async def get_user_preferences(x_user_id: str = Header(..., description="用户�
 @router.post("/preferences", response_model=UserPreferencesResponse)
 async def save_user_preferences(
     preferences: Dict[str, Any] = Body(..., description="用户偏好设置"),
-    x_user_id: str = Header(..., description="用户唯一标识")
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
 ):
     """
     保存用户偏好设置
     """
+    # 如果没有提供用户ID，返回错误
+    if not x_user_id:
+        raise HTTPException(status_code=400, detail="保存偏好设置需要用户ID")
+    
     # 获取现有偏好
     user_prefs = await db_service.get_user_preferences(x_user_id)
     
@@ -65,11 +77,18 @@ async def save_user_preferences(
 @router.post("/search-history")
 async def save_search_history(
     search_data: Dict[str, str] = Body(..., description="搜索查询数据"),
-    x_user_id: str = Header(..., description="用户唯一标识")
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
 ):
     """
     保存用户搜索历史
     """
+    # 如果没有提供用户ID，不保存搜索历史
+    if not x_user_id:
+        return {
+            "status": "warning",
+            "message": "未提供用户ID，搜索历史未保存"
+        }
+    
     query = search_data.get("query")
     if not query or not query.strip():
         raise HTTPException(status_code=400, detail="搜索查询不能为空")
@@ -89,11 +108,19 @@ async def save_search_history(
 @router.get("/search-history")
 async def get_search_history(
     limit: int = Query(10, ge=1, le=50, description="返回的搜索历史条数"),
-    x_user_id: str = Header(..., description="用户唯一标识")
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
 ):
     """
     获取用户搜索历史
     """
+    # 如果没有提供用户ID，返回空列表
+    if not x_user_id:
+        return {
+            "user_id": "anonymous",
+            "searches": [],
+            "updated_at": None
+        }
+    
     # 获取搜索历史
     history = await db_service.get_search_history(x_user_id, limit)
     
@@ -106,12 +133,19 @@ async def get_search_history(
 @router.post("/paper-view/{paper_id}")
 async def record_paper_view(
     paper_id: str = Path(..., description="论文ID"),
-    x_user_id: str = Header(..., description="用户唯一标识")
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
 ):
     """
     记录用户论文浏览记录
     """
-    if not paper_id or not x_user_id:
+    # 如果没有提供用户ID，不记录浏览
+    if not x_user_id:
+        return {
+            "success": False,
+            "message": "未提供用户ID，浏览记录未保存"
+        }
+    
+    if not paper_id:
         raise HTTPException(status_code=400, detail="缺少必要参数")
     
     success = await db_service.record_paper_view(user_id=x_user_id, paper_id=paper_id)
@@ -130,13 +164,18 @@ async def record_paper_view(
 async def get_user_paper_views(
     limit: int = Query(20, description="最大返回数量", ge=1, le=50),
     days: int = Query(30, description="只返回最近多少天的记录", ge=1, le=365),
-    x_user_id: str = Header(..., description="用户唯一标识")
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
 ):
     """
     获取用户论文浏览记录
     """
+    # 如果没有提供用户ID，返回空列表
     if not x_user_id:
-        raise HTTPException(status_code=400, detail="缺少用户ID")
+        return UserPaperViews(
+            user_id="anonymous",
+            views=[],
+            updated_at=None
+        )
     
     views = await db_service.get_user_paper_views(
         user_id=x_user_id,

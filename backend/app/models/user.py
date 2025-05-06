@@ -13,7 +13,7 @@ class UserPreferencesResponse(BaseModel):
     """用户偏好设置响应模型"""
     user_id: str
     preferences: Dict[str, Any]
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
 class SearchHistoryItem(BaseModel):
     """搜索历史项目模型"""
@@ -30,7 +30,7 @@ class UserSearchHistoryResponse(BaseModel):
     """用户搜索历史响应模型"""
     user_id: str
     searches: List[SearchHistoryItem]
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
 class PaperViewItem(BaseModel):
     """论文浏览记录项"""
