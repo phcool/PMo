@@ -40,9 +40,9 @@ echo "0 */4 * * * $PYTHON_PATH $FETCH_SCRIPT >> $SCRIPT_DIR/../logs/cron_fetch.l
 echo "Added fetch papers job to crontab (every 4 hours)"
 
 # Add analyze papers job - run 30 minutes after fetch papers job (at hour 0:30, 4:30, 8:30, 12:30, 16:30, 20:30)
-# 不使用--batch参数，以便处理所有待分析论文
-echo "30 */4 * * * $PYTHON_PATH $ANALYZE_SCRIPT >> $SCRIPT_DIR/../logs/cron_analyze.log 2>&1" >> "$TEMP_CRON"
-echo "Added analyze papers job to crontab (30 minutes after fetch job, processing all papers)"
+# 使用--concurrency 1参数限制并发，以便处理所有待分析论文但不会被API限流
+echo "30 */4 * * * $PYTHON_PATH $ANALYZE_SCRIPT --concurrency 1 >> $SCRIPT_DIR/../logs/cron_analyze.log 2>&1" >> "$TEMP_CRON"
+echo "Added analyze papers job to crontab (30 minutes after fetch job, processing all papers with concurrency=1)"
 
 # Install new crontab
 crontab "$TEMP_CRON"
@@ -60,5 +60,5 @@ echo "
 Note: The scheduler has been disabled in your .env file with DISABLE_SCHEDULER=true
 The following cron jobs have been set up:
 1. Fetch papers: Every 4 hours (0:00, 4:00, 8:00, 12:00, 16:00, 20:00)
-2. Analyze papers: 30 minutes after fetch (0:30, 4:30, 8:30, 12:30, 16:30, 20:30) - processing all pending papers
+2. Analyze papers: 30 minutes after fetch (0:30, 4:30, 8:30, 12:30, 16:30, 20:30) - processing all pending papers with concurrency=1
 " 

@@ -28,17 +28,18 @@ logger = logging.getLogger("cron_analyze")
 # Import our services
 from app.services.paper_analysis_service import paper_analysis_service
 
-async def analyze_papers(process_all=True, max_papers=None):
+async def analyze_papers(process_all=True, max_papers=None, concurrency=2):
     """
     Analyze papers that haven't been analyzed yet.
     
     Args:
         process_all: 是否处理所有待分析论文
         max_papers: 最大处理论文数量
+        concurrency: 最大并发处理数，默认为2，避免API限流
     """
     start_time = datetime.now()
     logger.info(f"Starting paper analysis job at {start_time}")
-    logger.info(f"Configuration: process_all={process_all}, max_papers={max_papers or 'unlimited'}")
+    logger.info(f"Configuration: process_all={process_all}, max_papers={max_papers or 'unlimited'}, concurrency={concurrency}")
     
     try:
         # Check if another analysis is already running
@@ -50,7 +51,8 @@ async def analyze_papers(process_all=True, max_papers=None):
         logger.info("Starting paper analysis and waiting for completion")
         result = await paper_analysis_service.analyze_pending_papers(
             process_all=process_all, 
-            max_papers=max_papers
+            max_papers=max_papers,
+            max_concurrency=concurrency
         )
         
         # Log the results
@@ -80,11 +82,13 @@ async def main():
     parser = argparse.ArgumentParser(description='Analyze papers that have been fetched.')
     parser.add_argument('--limit', type=int, help='Maximum number of papers to analyze')
     parser.add_argument('--batch', action='store_true', help='Use batch mode instead of processing all papers')
+    parser.add_argument('--concurrency', type=int, default=2, help='Maximum concurrent analyses (default: 2)')
     args = parser.parse_args()
     
     # 根据命令行参数设置配置
     process_all = not args.batch  # 默认处理所有论文，除非指定--batch
     max_papers = args.limit  # 可以是None或整数
+    concurrency = args.concurrency  # 并发数
     
     # Create logs directory if it doesn't exist
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
@@ -95,7 +99,7 @@ async def main():
     logger.info("Starting paper analysis script")
     
     # Run the analysis job
-    await analyze_papers(process_all=process_all, max_papers=max_papers)
+    await analyze_papers(process_all=process_all, max_papers=max_papers, concurrency=concurrency)
     
     logger.info("Paper analysis script completed")
     logger.info("=" * 80)

@@ -252,96 +252,167 @@ class PaperAnalysisService:
         self.current_task = None
         self.batch_size = int(os.getenv("ANALYSIS_BATCH_SIZE", "5")) # 从环境变量获取批处理大小
         # Max chars for LLM input (adjust per model, e.g., qwen-turbo 8k context -> ~24k chars)
-        self.max_llm_input_chars = int(os.getenv("LLM_MAX_INPUT_CHARS", "24000"))
+        self.max_llm_input_chars = int(os.getenv("LLM_MAX_INPUT_CHARS", "50000"))
     
-    async def _extract_text_from_pdf(self, paper_id: str, pdf_url: str) -> Optional[Tuple[str, int]]:
+    async def _extract_text_from_pdf(self, paper_id: str, pdf_url: str, max_retries: int = 2) -> Optional[Tuple[str, int]]:
         """
         从PDF URL提取文本内容，并计算字数。
         
+        Args:
+            paper_id: 论文ID
+            pdf_url: PDF的URL
+            max_retries: 下载重试次数，默认为2
+            
         Returns:
             一个元组 (提取的文本内容, 字数) 或 None (如果提取失败)
         """
         start_time = time.time()
-        try:
-            logger.info(f"开始下载PDF for {paper_id}: {pdf_url}")
-            
-            # 设置合理的超时，例如 60 秒
-            timeout = aiohttp.ClientTimeout(total=60)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(pdf_url) as response:
-                    if response.status != 200:
-                        logger.error(f"下载PDF失败 for {paper_id} ({pdf_url}), 状态码: {response.status}")
+        retry_count = 0
+        
+        while retry_count <= max_retries:
+            try:
+                if retry_count > 0:
+                    logger.info(f"尝试第 {retry_count} 次重试下载PDF for {paper_id}: {pdf_url}")
+                else:
+                    logger.info(f"开始下载PDF for {paper_id}: {pdf_url}")
+                
+                # 设置合理的超时，例如 60 秒
+                timeout = aiohttp.ClientTimeout(total=60)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(pdf_url) as response:
+                        if response.status != 200:
+                            logger.error(f"下载PDF失败 for {paper_id} ({pdf_url}), 状态码: {response.status}")
+                            if retry_count < max_retries:
+                                retry_count += 1
+                                await asyncio.sleep(2)  # 等待2秒后重试
+                                continue
+                            return None
+                        
+                        pdf_content = await response.read()
+                        if not pdf_content or len(pdf_content) < 1000:  # 检查PDF内容是否过小
+                            logger.warning(f"PDF内容可能不完整 for {paper_id}, 大小仅 {len(pdf_content)} 字节")
+                            if retry_count < max_retries:
+                                retry_count += 1
+                                await asyncio.sleep(2)  # 等待2秒后重试
+                                continue
+                        
+                        download_time = time.time() - start_time
+                        logger.info(f"PDF下载完成 for {paper_id}，大小: {len(pdf_content)/1024:.1f} KB, 耗时: {download_time:.2f} 秒")
+                
+                # 使用PyMuPDF提取文本
+                extraction_start = time.time()
+                text = ""
+                word_count = 0
+                
+                try:
+                    # 确保PDF内容有效
+                    if len(pdf_content) < 100:
+                        logger.error(f"PDF内容太小，可能不是有效的PDF for {paper_id}，大小: {len(pdf_content)} 字节")
+                        if retry_count < max_retries:
+                            retry_count += 1
+                            await asyncio.sleep(2)  # 等待2秒后重试
+                            continue
                         return None
                     
-                    pdf_content = await response.read()
-                    download_time = time.time() - start_time
-                    logger.info(f"PDF下载完成 for {paper_id}，大小: {len(pdf_content)/1024:.1f} KB, 耗时: {download_time:.2f} 秒")
-            
-            # 使用PyMuPDF提取文本
-            extraction_start = time.time()
-            text = ""
-            word_count = 0
-            
-            try:
-                # 增加内存使用提示和处理大型PDF的策略
-                # PyMuPDF 通常内存效率较高，但超大文件仍可能出问题
-                with fitz.open(stream=pdf_content, filetype="pdf") as doc:
-                    total_pages = len(doc)
-                    logger.info(f"PDF共 {total_pages} 页 for {paper_id}")
+                    # 增加内存使用提示和处理大型PDF的策略
+                    # PyMuPDF 通常内存效率较高，但超大文件仍可能出问题
+                    with fitz.open(stream=pdf_content, filetype="pdf") as doc:
+                        total_pages = len(doc)
+                        logger.info(f"PDF共 {total_pages} 页 for {paper_id}")
+                        
+                        if total_pages == 0:
+                            logger.error(f"PDF没有页面 for {paper_id}")
+                            if retry_count < max_retries:
+                                retry_count += 1
+                                await asyncio.sleep(2)  # 等待2秒后重试
+                                continue
+                            return None
+                        
+                        # 提取前 N 页 (例如 15 页)
+                        max_pages_to_extract = int(os.getenv("PDF_EXTRACT_MAX_PAGES", "15"))
+                        pages_to_process = min(max_pages_to_extract, total_pages)
+                        
+                        extracted_texts = []
+                        for i in range(pages_to_process):
+                            try:
+                                page = doc.load_page(i)
+                                page_text = page.get_text("text") 
+                                if page_text:
+                                    # 立即清理每个页面的空字节
+                                    page_text = page_text.replace('\x00', '')
+                                    extracted_texts.append(page_text.strip()) 
+                            except Exception as page_error:
+                                 logger.warning(f"提取PDF页面 {i+1}/{total_pages} 出错 for {paper_id}: {page_error}")
+                                 continue # 跳过出错页面
+                                
+                        text = "\n\n".join(extracted_texts) # 使用双换行符分隔页面
                     
-                    # 提取前 N 页 (例如 15 页)
-                    max_pages_to_extract = int(os.getenv("PDF_EXTRACT_MAX_PAGES", "15"))
-                    pages_to_process = min(max_pages_to_extract, total_pages)
+                    # 检查是否成功提取到文本
+                    if not text or len(text) < 100:
+                        logger.warning(f"提取的文本太短 for {paper_id}，长度: {len(text)} 字符")
+                        if retry_count < max_retries:
+                            retry_count += 1
+                            await asyncio.sleep(2)  # 等待2秒后重试
+                            continue
                     
-                    extracted_texts = []
-                    for i in range(pages_to_process):
-                        try:
-                            page = doc.load_page(i)
-                            page_text = page.get_text("text") 
-                            if page_text:
-                                # 立即清理每个页面的空字节
-                                page_text = page_text.replace('\x00', '')
-                                extracted_texts.append(page_text.strip()) 
-                        except Exception as page_error:
-                             logger.warning(f"提取PDF页面 {i+1}/{total_pages} 出错 for {paper_id}: {page_error}")
-                             continue # 跳过出错页面
-                            
-                    text = "\n\n".join(extracted_texts) # 使用双换行符分隔页面
-                
-                # 最后再清理一次整个文本的空字节
-                text = text.replace('\x00', '')
-                
-                extraction_time = time.time() - extraction_start
-                logger.info(f"PDF文本提取完成 for {paper_id}，提取了 {pages_to_process}/{total_pages} 页, 耗时: {extraction_time:.2f} 秒")
-                
-                # 注意：文本清理 (clean_text_for_api) 现在由 llm_service 处理
-                # 文本长度限制也移至 llm_service
-                
-                total_time = time.time() - start_time
-                logger.info(f"PDF处理完成 {paper_id} ({pdf_url}), 总耗时: {total_time:.2f} 秒, 提取文本长度: {len(text)} 字符")
-                
-                # Calculate word count after joining pages
-                if text:
-                     word_count = len(text.split()) 
-                
-                return text, word_count
-                
-            except fitz.FileDataError as fe:
-                 logger.error(f"PyMuPDF无法打开或处理PDF数据 for {paper_id}: {fe}")
+                    # 最后再清理一次整个文本的空字节
+                    text = text.replace('\x00', '')
+                    
+                    extraction_time = time.time() - extraction_start
+                    logger.info(f"PDF文本提取完成 for {paper_id}，提取了 {pages_to_process}/{total_pages} 页, 耗时: {extraction_time:.2f} 秒")
+                    
+                    # 注意：文本清理 (clean_text_for_api) 现在由 llm_service 处理
+                    # 文本长度限制也移至 llm_service
+                    
+                    total_time = time.time() - start_time
+                    logger.info(f"PDF处理完成 {paper_id} ({pdf_url}), 总耗时: {total_time:.2f} 秒, 提取文本长度: {len(text)} 字符")
+                    
+                    # Calculate word count after joining pages
+                    if text:
+                         word_count = len(text.split()) 
+                    
+                    return text, word_count
+                    
+                except fitz.FileDataError as fe:
+                     logger.error(f"PyMuPDF无法打开或处理PDF数据 for {paper_id}: {fe}")
+                     if retry_count < max_retries:
+                         retry_count += 1
+                         await asyncio.sleep(2)  # 等待2秒后重试
+                         continue
+                     return None
+                except Exception as e_fitz:
+                    logger.error(f"PyMuPDF提取文本时出错 for {paper_id}: {e_fitz.__class__.__name__} - {e_fitz}")
+                    if retry_count < max_retries:
+                        retry_count += 1
+                        await asyncio.sleep(2)  # 等待2秒后重试
+                        continue
+                    return None
+                    
+            except asyncio.TimeoutError:
+                 logger.error(f"下载PDF超时 for {paper_id} ({pdf_url})")
+                 if retry_count < max_retries:
+                     retry_count += 1
+                     await asyncio.sleep(2)  # 等待2秒后重试
+                     continue
                  return None
-            except Exception as e_fitz:
-                logger.error(f"PyMuPDF提取文本时出错 for {paper_id}: {e_fitz.__class__.__name__} - {e_fitz}")
+            except aiohttp.ClientError as e_http:
+                 logger.error(f"下载PDF时发生客户端错误 for {paper_id} ({pdf_url}): {e_http}")
+                 if retry_count < max_retries:
+                     retry_count += 1
+                     await asyncio.sleep(2)  # 等待2秒后重试
+                     continue
+                 return None
+            except Exception as e_main:
+                logger.error(f"提取PDF文本过程中发生意外错误 for {paper_id} ({pdf_url}): {e_main}")
+                if retry_count < max_retries:
+                    retry_count += 1
+                    await asyncio.sleep(2)  # 等待2秒后重试
+                    continue
                 return None
                 
-        except asyncio.TimeoutError:
-             logger.error(f"下载PDF超时 for {paper_id} ({pdf_url})")
-             return None
-        except aiohttp.ClientError as e_http:
-             logger.error(f"下载PDF时发生客户端错误 for {paper_id} ({pdf_url}): {e_http}")
-             return None
-        except Exception as e_main:
-            logger.error(f"提取PDF文本过程中发生意外错误 for {paper_id} ({pdf_url}): {e_main}")
-            return None
+        # 如果所有重试都失败
+        logger.error(f"在 {max_retries} 次尝试后仍然无法提取PDF文本 for {paper_id}")
+        return None
     
     async def _generate_llm_analysis_json(self, paper_id: str, text: str) -> Optional[str]:
         """
@@ -536,13 +607,14 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             logger.error(f"[{paper_id}] 保存分析结果到数据库失败")
             return None
             
-    async def analyze_pending_papers(self, process_all: bool = False, max_papers: int = None) -> Dict[str, Any]:
+    async def analyze_pending_papers(self, process_all: bool = False, max_papers: int = None, max_concurrency: int = 2) -> Dict[str, Any]:
         """
         分析一批待处理的论文
         
         Args:
             process_all: 是否处理所有待分析论文，而不受批量大小限制
             max_papers: 最大处理论文数量限制（如果设置）
+            max_concurrency: 最大并发处理论文数量，默认为2（防止API请求过多被限流）
         """
         if self.is_analyzing:
             logger.info("分析任务已在运行中")
@@ -561,7 +633,16 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             if max_papers is not None:
                 batch_limit = min(max_papers, batch_limit) if batch_limit else max_papers
                 
-            logger.info(f"开始分析任务: {'处理所有待分析论文' if process_all else f'批量大小={batch_limit}'}")
+            logger.info(f"开始分析任务: {'处理所有待分析论文' if process_all else f'批量大小={batch_limit}'}, 最大并发数: {max_concurrency}")
+            
+            # 创建信号量以限制并发
+            semaphore = asyncio.Semaphore(max_concurrency)
+            
+            # 包装分析函数，使用信号量限制并发
+            async def analyze_with_semaphore(paper_id):
+                async with semaphore:
+                    logger.info(f"获取信号量开始分析论文: {paper_id}")
+                    return await self.analyze_paper(paper_id, timeout_seconds=120)
             
             # 第一次获取待分析论文
             pending_papers = await db_service.get_papers_without_analysis(limit=batch_limit)
@@ -573,14 +654,14 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             while pending_papers:
                 batch_size = len(pending_papers)
                 total_pending += batch_size
-                logger.info(f"开始处理新批次: {batch_size} 篇待分析论文")
+                logger.info(f"开始处理新批次: {batch_size} 篇待分析论文 (并发限制: {max_concurrency})")
                 
                 analysis_tasks = []
                 for paper in pending_papers:
-                    # 为每篇论文创建一个分析任务，添加2分钟超时
-                    analysis_tasks.append(self.analyze_paper(paper.paper_id, timeout_seconds=120))
+                    # 使用信号量包装的分析任务
+                    analysis_tasks.append(analyze_with_semaphore(paper.paper_id))
                 
-                # 并发执行分析任务
+                # 并发执行分析任务（但受信号量限制）
                 results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
                 
                 # 处理结果
@@ -633,25 +714,30 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             self.is_analyzing = False
             self.current_task = None
             
-    async def start_analysis_task(self, process_all: bool = False, max_papers: int = None) -> Dict[str, Any]:
+    async def start_analysis_task(self, process_all: bool = False, max_papers: int = None, max_concurrency: int = 2) -> Dict[str, Any]:
         """
         异步启动批量论文分析任务
         
         Args:
             process_all: 是否处理所有待分析论文，而不受批量大小限制
             max_papers: 最大处理论文数量限制（如果设置）
+            max_concurrency: 最大并发处理论文数量，默认为2（防止API请求过多被限流）
         """
         if self.is_analyzing:
             logger.info("分析任务已在运行中，无法启动新的任务")
             return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
 
-        logger.info(f"准备启动后台批量分析任务 (处理所有={process_all}, 最大数量={max_papers or '无限制'})")
+        logger.info(f"准备启动后台批量分析任务 (处理所有={process_all}, 最大数量={max_papers or '无限制'}, 并发数={max_concurrency})")
         self.is_analyzing = True # 标记任务开始
         
         # 使用 asyncio.create_task 在后台运行 analyze_pending_papers
         # 将任务对象保存起来，如果需要的话可以用于查询状态或取消
         self.current_task = asyncio.create_task(
-            self.analyze_pending_papers(process_all=process_all, max_papers=max_papers), 
+            self.analyze_pending_papers(
+                process_all=process_all, 
+                max_papers=max_papers,
+                max_concurrency=max_concurrency
+            ), 
             name=f"paper_analysis_task_{datetime.now():%Y%m%d_%H%M%S}"
         )
         

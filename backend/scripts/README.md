@@ -58,18 +58,19 @@ cron作业的日志存储在`/home/phcool/dlmonitor/backend/logs/`目录下：
 
 - `--batch`: 使用批处理模式，每次只分析一小批论文（默认是分析所有待处理论文）
 - `--limit N`: 限制最多处理N篇论文
+- `--concurrency N`: 设置最大并发处理数量，默认为2（避免API限流）
 
 例如：
 
 ```bash
-# 处理所有待分析论文
+# 处理所有待分析论文（默认并发数为2）
 python scripts/analyze_papers.py
 
-# 仅处理一批论文（批大小由代码中的ANALYSIS_BATCH_SIZE环境变量设置）
-python scripts/analyze_papers.py --batch
+# 仅处理一批论文，设置并发数为1（批大小由ANALYSIS_BATCH_SIZE环境变量设置）
+python scripts/analyze_papers.py --batch --concurrency 1
 
-# 最多处理20篇论文
-python scripts/analyze_papers.py --limit 20
+# 最多处理20篇论文，设置并发数为3
+python scripts/analyze_papers.py --limit 20 --concurrency 3
 
 # 批量模式下最多处理10篇论文
 python scripts/analyze_papers.py --batch --limit 10
@@ -77,6 +78,7 @@ python scripts/analyze_papers.py --batch --limit 10
 
 ### 6. 其他特性
 
+- 默认限制最大并发处理数为2，防止同时发送过多请求导致API被限流
 - 单篇论文分析有2分钟的超时限制，超时后会跳过该论文继续处理下一篇
 - 对于每个新获取的批次，最多会分析前15页内容（避免过长导致分析不准确）
 - 处理文本中的无效字符以确保数据库存储和API调用的兼容性
@@ -89,7 +91,7 @@ python scripts/analyze_papers.py --batch --limit 10
 cd /home/phcool/dlmonitor/backend
 source venv/bin/activate  # 激活虚拟环境（如果使用）
 python scripts/fetch_papers.py
-python scripts/analyze_papers.py
+python scripts/analyze_papers.py --concurrency 1  # 使用较低的并发数以避免API限流
 ```
 
 ## 服务器重启后
