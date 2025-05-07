@@ -3,17 +3,18 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 class UserPreferences(BaseModel):
-    """用户偏好设置模型"""
+    """用户访问记录模型"""
     user_id: str = Field(..., description="用户唯一标识")
-    preferences: Dict[str, Any] = Field(default_factory=dict, description="用户偏好设置")
+    ip_prefix: Optional[str] = Field(None, description="用户IP的前一部分")
+    last_visited_at: datetime = Field(default_factory=datetime.now, description="最后访问时间")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
 
 class UserPreferencesResponse(BaseModel):
-    """用户偏好设置响应模型"""
+    """用户访问记录响应模型"""
     user_id: str
-    preferences: Dict[str, Any]
-    updated_at: Optional[datetime] = None
+    ip_prefix: Optional[str] = None
+    last_visited_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
 class SearchHistoryItem(BaseModel):
     """搜索历史项目模型"""

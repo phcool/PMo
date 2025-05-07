@@ -5,11 +5,11 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import selectinload
 
 from app.models.paper import Paper, PaperResponse, PaperAnalysis, PaperAnalysisResponse
-from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBPaperAnalysis, DBPaperExtractedText, DBUserPreferences, DBUserSearchHistory, DBUserPaperView
+from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBPaperAnalysis, DBUserPreferences, DBUserSearchHistory, DBUserPaperView
 from app.models.user import UserPreferences, SearchHistoryItem, UserSearchHistory, PaperViewItem, UserPaperViews
 from app.db.database import get_async_db
 
@@ -463,13 +463,13 @@ class DBService:
     # 用户偏好相关方法
     async def get_user_preferences(self, user_id: str) -> Optional[UserPreferences]:
         """
-        获取用户偏好设置
+        获取用户访问记录
         
         Args:
             user_id: 用户ID
             
         Returns:
-            用户偏好设置或None（如果不存在）
+            用户访问记录或None（如果不存在）
         """
         async for db in get_async_db():
             result = await db.execute(
@@ -483,26 +483,26 @@ class DBService:
             
             return UserPreferences(
                 user_id=db_prefs.user_id,
-                preferences=db_prefs.preferences,
-                created_at=db_prefs.created_at,
-                updated_at=db_prefs.updated_at
+                ip_prefix=db_prefs.ip_prefix,
+                last_visited_at=db_prefs.last_visited_at,
+                created_at=db_prefs.created_at
             )
         
         return None
         
     async def save_user_preferences(self, user_prefs: UserPreferences) -> bool:
         """
-        保存用户偏好设置
+        保存用户访问记录
         
         Args:
-            user_prefs: 用户偏好设置
+            user_prefs: 用户访问记录
             
         Returns:
             是否成功保存
         """
         async for db in get_async_db():
             try:
-                # 查询用户偏好是否已存在
+                # 查询用户是否已存在
                 result = await db.execute(
                     select(DBUserPreferences)
                     .where(DBUserPreferences.user_id == user_prefs.user_id)
@@ -513,25 +513,25 @@ class DBService:
                 
                 if existing_prefs:
                     # 更新现有记录
-                    existing_prefs.preferences = user_prefs.preferences
-                    existing_prefs.updated_at = now
+                    existing_prefs.ip_prefix = user_prefs.ip_prefix
+                    existing_prefs.last_visited_at = now
                 else:
                     # 创建新记录
                     db_prefs = DBUserPreferences(
                         user_id=user_prefs.user_id,
-                        preferences=user_prefs.preferences,
-                        created_at=now,
-                        updated_at=now
+                        ip_prefix=user_prefs.ip_prefix,
+                        last_visited_at=now,
+                        created_at=now
                     )
                     db.add(db_prefs)
                 
                 await db.commit()
-                logger.info(f"用户偏好设置已保存: {user_prefs.user_id}")
+                logger.info(f"用户访问记录已保存: {user_prefs.user_id}")
                 return True
                 
             except Exception as e:
                 await db.rollback()
-                logger.error(f"保存用户偏好设置失败: {e}")
+                logger.error(f"保存用户访问记录失败: {e}")
                 return False
         
         return False
@@ -748,119 +748,36 @@ class DBService:
         )
     
     async def get_viewed_papers(self, user_id: str, limit: int = 10) -> List[Paper]:
-        """
-        获取用户浏览过的论文
-        
-        Args:
-            user_id: 用户ID
-            limit: 最大返回数量
-            
-        Returns:
-            论文列表
-        """
-        if not user_id:
-            return []
-            
+        """获取用户最近浏览过的论文列表"""
         papers = []
         
         async for db in get_async_db():
             try:
-                # 获取用户最近浏览的论文ID
-                stmt = (
-                    select(DBUserPaperView.paper_id, DBUserPaperView.last_viewed_at)
-                    .where(DBUserPaperView.user_id == user_id)
-                    .order_by(DBUserPaperView.last_viewed_at.desc())
-                    .distinct()
-                    .limit(limit)
-                )
+                # 获取用户最近浏览的论文ID列表
+                stmt = text("""
+                    SELECT DISTINCT user_paper_views.paper_id, user_paper_views.last_viewed_at
+                    FROM user_paper_views
+                    WHERE user_paper_views.user_id = :user_id
+                    ORDER BY user_paper_views.last_viewed_at DESC
+                    LIMIT :limit
+                """)
                 
-                result = await db.execute(stmt)
-                paper_ids = [row[0] for row in result.all()]
+                result = await db.execute(stmt, {"user_id": user_id, "limit": limit})
+                paper_ids = [row[0] for row in result.fetchall()]
                 
                 if not paper_ids:
                     return []
                 
                 # 获取论文详情
                 papers = await self.get_papers_by_ids(paper_ids)
+                # 保持与查询结果相同的顺序
+                papers.sort(key=lambda p: paper_ids.index(p.paper_id))
                 
             except Exception as e:
                 logger.error(f"获取用户浏览过的论文时出错: {e}")
-        
-        return papers
-
-    async def save_or_update_extracted_text(self, paper_id: str, text: str, word_count: Optional[int] = None) -> bool:
-        """
-        保存或更新论文提取的文本内容和字数统计。
-        
-        Args:
-            paper_id: 论文ID。
-            text: 提取的文本内容。
-            word_count: 估算的字数。
-            
-        Returns:
-            True 如果成功，False 如果失败。
-        """
-        # 确保文本不包含空字节(0x00)，这会导致PostgreSQL UTF-8编码错误
-        if text and '\x00' in text:
-            logger.warning(f"论文 {paper_id} 的文本包含空字节(0x00)，正在清理以避免数据库错误")
-            text = text.replace('\x00', '')
-            
-        async for db in get_async_db():
-            try:
-                # 尝试获取现有记录
-                result = await db.execute(
-                    select(DBPaperExtractedText).filter(DBPaperExtractedText.paper_id == paper_id)
-                )
-                existing_record = result.scalars().first()
+                return []
                 
-                if existing_record:
-                    # 更新现有记录
-                    existing_record.text = text
-                    existing_record.word_count = word_count # Update word count
-                    existing_record.updated_at = datetime.utcnow()
-                    logger.info(f"更新论文 {paper_id} 的提取文本和字数 ({word_count})")
-                else:
-                    # 创建新记录
-                    new_record = DBPaperExtractedText(
-                        paper_id=paper_id,
-                        text=text,
-                        word_count=word_count, # Add word count
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(new_record)
-                    logger.info(f"为论文 {paper_id} 创建新的提取文本记录 (字数: {word_count})")
-                    
-                await db.commit()
-                return True
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"保存或更新论文 {paper_id} 的提取文本失败: {e}", exc_info=True)
-                return False
-        return False # Fallback
-
-    async def get_extracted_text(self, paper_id: str) -> Optional[str]:
-        """
-        获取指定论文的提取文本内容。
-        
-        Args:
-            paper_id: 论文ID。
-            
-        Returns:
-            提取的文本字符串，如果未找到则返回 None。
-        """
-        async for db in get_async_db():
-            try:
-                result = await db.execute(
-                    select(DBPaperExtractedText.text).filter(DBPaperExtractedText.paper_id == paper_id)
-                )
-                # scalars().first() 会直接返回第一列的第一个值，即文本内容
-                text_content = result.scalars().first()
-                return text_content
-            except Exception as e:
-                logger.error(f"获取论文 {paper_id} 的提取文本失败: {e}")
-                return None
-        return None # Fallback
+        return papers
 
 # 创建一个全局实例
 db_service = DBService() 

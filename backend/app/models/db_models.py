@@ -39,7 +39,6 @@ class DBPaper(Base):
     authors = relationship("DBAuthor", secondary=paper_authors, backref="papers")
     categories = relationship("DBCategory", secondary=paper_categories, backref="papers")
     analysis = relationship("DBPaperAnalysis", uselist=False, back_populates="paper", cascade="all, delete-orphan")
-    extracted_text_relation = relationship("DBPaperExtractedText", uselist=False, back_populates="paper", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Paper {self.paper_id}: {self.title}>"
@@ -85,18 +84,18 @@ class DBPaperAnalysis(Base):
     def __repr__(self):
         return f"<PaperAnalysis {self.paper_id}>"
 
-# 添加用户偏好表
+# 修改用户表名
 class DBUserPreferences(Base):
-    """用户偏好设置数据库模型"""
-    __tablename__ = "user_preferences"
+    """用户访问记录数据库模型"""
+    __tablename__ = "user"
     
     user_id = sa.Column(sa.String, primary_key=True, index=True)
-    preferences = sa.Column(JSONB, nullable=False, default={})
+    ip_prefix = sa.Column(sa.String, nullable=True, index=True)  # 存储用户IP的前一部分
+    last_visited_at = sa.Column(sa.DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())  # 最后访问时间
     created_at = sa.Column(sa.DateTime, nullable=False, default=sa.func.now())
-    updated_at = sa.Column(sa.DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
     
     def __repr__(self):
-        return f"<UserPreferences(user_id='{self.user_id}')>"
+        return f"<UserVisit(user_id='{self.user_id}', ip_prefix='{self.ip_prefix}')>"
 
 # 添加用户搜索历史表
 class DBUserSearchHistory(Base):
@@ -129,21 +128,3 @@ class DBUserPaperView(Base):
     
     def __repr__(self):
         return f"<UserPaperView(user_id='{self.user_id}', paper_id='{self.paper_id}', view_date='{self.view_date}')>"
-
-# --- Define the new table for extracted text --- 
-class DBPaperExtractedText(Base):
-    """存储从PDF提取的文本内容"""
-    __tablename__ = "paper_extracted_texts"
-
-    paper_id = Column(String, ForeignKey("papers.paper_id", ondelete="CASCADE"), primary_key=True)
-    text = Column(Text, nullable=False) 
-    word_count = Column(Integer, nullable=True) # Store estimated word count
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationship back to DBPaper
-    paper = relationship("DBPaper", back_populates="extracted_text_relation")
-    
-    def __repr__(self):
-         return f"<PaperExtractedText {self.paper_id} len={len(self.text) if self.text else 0} words={self.word_count or 'N/A'}>"
-# ----------------------------------------------- 

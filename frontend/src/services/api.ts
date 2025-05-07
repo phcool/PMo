@@ -102,18 +102,18 @@ export default {
   },
   
   /**
-   * 获取用户偏好设置
+   * 获取用户访问记录
    */
   async getUserPreferences(): Promise<any> {
-    const response = await api.get('/api/user/preferences');
+    const response = await api.get('/api/user/user');
     return response.data;
   },
   
   /**
-   * 保存用户偏好设置
+   * 保存用户访问记录
    */
   async saveUserPreferences(preferences: any): Promise<any> {
-    const response = await api.post('/api/user/preferences', preferences);
+    const response = await api.post('/api/user/user', preferences);
     return response.data;
   },
 

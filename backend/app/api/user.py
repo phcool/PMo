@@ -9,70 +9,107 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/preferences", response_model=UserPreferencesResponse)
-async def get_user_preferences(x_user_id: Optional[str] = Header(None, description="用户唯一标识")):
+@router.get("/user", response_model=UserPreferencesResponse)
+async def get_user(x_user_id: Optional[str] = Header(None, description="用户唯一标识"),
+                  x_forwarded_for: Optional[str] = Header(None, description="用户IP地址")):
     """
-    获取用户偏好设置
+    获取用户访问记录
     """
-    # 如果没有提供用户ID，返回默认偏好
+    # 如果没有提供用户ID，返回默认记录
     if not x_user_id:
         return UserPreferencesResponse(
             user_id="anonymous",
-            preferences={},
-            updated_at=None
+            ip_prefix=None,
+            last_visited_at=None,
+            created_at=None
         )
     
-    # 获取用户偏好
+    # 获取用户访问记录
     user_prefs = await db_service.get_user_preferences(x_user_id)
     
-    # 如果用户偏好不存在，创建一个新的
+    # 如果用户记录不存在，创建一个新的
     if not user_prefs:
-        user_prefs = UserPreferences(user_id=x_user_id, preferences={})
+        # 从 X-Forwarded-For 提取 IP 前缀
+        ip_prefix = None
+        if x_forwarded_for:
+            ip_parts = x_forwarded_for.split(',')[0].strip().split('.')
+            if len(ip_parts) >= 2:
+                ip_prefix = '.'.join(ip_parts[:2])  # 取IP地址的前两部分
+        
+        user_prefs = UserPreferences(user_id=x_user_id, ip_prefix=ip_prefix)
         await db_service.save_user_preferences(user_prefs)
     
     return UserPreferencesResponse(
         user_id=user_prefs.user_id,
-        preferences=user_prefs.preferences,
-        updated_at=user_prefs.updated_at
+        ip_prefix=user_prefs.ip_prefix,
+        last_visited_at=user_prefs.last_visited_at,
+        created_at=user_prefs.created_at
     )
 
-@router.post("/preferences", response_model=UserPreferencesResponse)
-async def save_user_preferences(
-    preferences: Dict[str, Any] = Body(..., description="用户偏好设置"),
-    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
+@router.post("/user", response_model=UserPreferencesResponse)
+async def save_user(
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识"),
+    x_forwarded_for: Optional[str] = Header(None, description="用户IP地址")
 ):
     """
-    保存用户偏好设置
+    更新用户访问记录
     """
     # 如果没有提供用户ID，返回错误
     if not x_user_id:
-        raise HTTPException(status_code=400, detail="保存偏好设置需要用户ID")
+        raise HTTPException(status_code=400, detail="更新访问记录需要用户ID")
     
-    # 获取现有偏好
+    # 从 X-Forwarded-For 提取 IP 前缀
+    ip_prefix = None
+    if x_forwarded_for:
+        ip_parts = x_forwarded_for.split(',')[0].strip().split('.')
+        if len(ip_parts) >= 2:
+            ip_prefix = '.'.join(ip_parts[:2])  # 取IP地址的前两部分
+    
+    # 获取现有记录
     user_prefs = await db_service.get_user_preferences(x_user_id)
     
     if not user_prefs:
-        # 创建新偏好
-        user_prefs = UserPreferences(user_id=x_user_id, preferences=preferences)
+        # 创建新记录
+        user_prefs = UserPreferences(user_id=x_user_id, ip_prefix=ip_prefix)
     else:
-        # 更新现有偏好
-        user_prefs.preferences = preferences
+        # 更新IP前缀
+        user_prefs.ip_prefix = ip_prefix
     
-    # 保存偏好
+    # 保存记录
     success = await db_service.save_user_preferences(user_prefs)
     if not success:
-        raise HTTPException(status_code=500, detail="无法保存用户偏好设置")
+        raise HTTPException(status_code=500, detail="无法保存用户访问记录")
     
-    # 重新获取偏好以返回最新的时间戳
+    # 重新获取记录以返回最新的时间戳
     updated_prefs = await db_service.get_user_preferences(x_user_id)
     if not updated_prefs:
-        raise HTTPException(status_code=500, detail="保存后无法获取用户偏好设置")
+        raise HTTPException(status_code=500, detail="保存后无法获取用户访问记录")
     
     return UserPreferencesResponse(
         user_id=updated_prefs.user_id,
-        preferences=updated_prefs.preferences,
-        updated_at=updated_prefs.updated_at
+        ip_prefix=updated_prefs.ip_prefix,
+        last_visited_at=updated_prefs.last_visited_at,
+        created_at=updated_prefs.created_at
     )
+
+# 保留旧路径进行向后兼容
+@router.get("/preferences", response_model=UserPreferencesResponse)
+async def get_user_preferences(x_user_id: Optional[str] = Header(None, description="用户唯一标识"),
+                             x_forwarded_for: Optional[str] = Header(None, description="用户IP地址")):
+    """
+    获取用户访问记录（兼容旧路径）
+    """
+    return await get_user(x_user_id, x_forwarded_for)
+
+@router.post("/preferences", response_model=UserPreferencesResponse)
+async def save_user_preferences(
+    x_user_id: Optional[str] = Header(None, description="用户唯一标识"),
+    x_forwarded_for: Optional[str] = Header(None, description="用户IP地址")
+):
+    """
+    更新用户访问记录（兼容旧路径）
+    """
+    return await save_user(x_user_id, x_forwarded_for)
 
 @router.post("/search-history")
 async def save_search_history(

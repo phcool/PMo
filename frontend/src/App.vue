@@ -24,6 +24,7 @@
 import { defineComponent, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import userService from './services/user'
+import api from './services/api'
 
 export default defineComponent({
   name: 'App',
@@ -39,13 +40,30 @@ export default defineComponent({
         window.scrollY.toString()
       );
     };
+
+    // 更新用户访问记录
+    const updateUserVisit = async () => {
+      try {
+        // 确保用户ID已初始化
+        const userId = userService.getUserId();
+        // 调用API保存用户访问记录（空对象，因为服务器会使用请求头中的信息）
+        await api.saveUserPreferences({});
+      } catch (error) {
+        console.error('更新用户访问记录失败:', error);
+      }
+    };
     
     onMounted(() => {
       // 添加全局导航钩子
       router.beforeEach(saveScrollPositionBeforeLeave);
       
-      // 确保用户ID已初始化
-      userService.getUserId();
+      // 更新用户访问记录
+      updateUserVisit();
+
+      // 添加路由监听器，在每次路由变化时更新用户访问记录
+      router.afterEach(() => {
+        updateUserVisit();
+      });
     });
     
     onUnmounted(() => {

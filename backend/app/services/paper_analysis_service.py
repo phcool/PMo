@@ -199,47 +199,29 @@ def _parse_and_clean_llm_response(json_string: str, paper_id: str) -> Optional[D
                     clean_list.append(str(item))
                 return '\n'.join(clean_list)
             elif isinstance(value, dict):
-                formatted_items = []
+                # 处理嵌套字典
+                clean_dict = {}
                 for k, v in value.items():
-                    if isinstance(v, str):
-                        v = v.strip()
-                    formatted_items.append(f"{k}: {v}")
-                return '\n'.join(formatted_items)
-            elif isinstance(value, str):
-                return value.replace('\\n', '\n') # 替换转义的换行符
-            return str(value) # 其他类型转为字符串
-
-        cleaned_data = {}
-        expected_keys = ["summary", "key_findings", "contributions", "methodology", "limitations", "future_work", "keywords"]
-        for k in expected_keys:
-            v = analysis_data.get(k) # 使用 .get 避免 KeyError
-            if v is not None:
-                original_type = type(v).__name__
-                cleaned_v = clean_value(v)
-                cleaned_type = type(cleaned_v).__name__
-                # 进一步清理字符串：替换连续换行，统一数字列表格式
-                if isinstance(cleaned_v, str):
-                     cleaned_v = cleaned_v.replace('\\n', '\n')
-                     cleaned_v = re.sub(r'\n{3,}', '\n\n', cleaned_v) 
-                     cleaned_v = re.sub(r'^(\d+)\)([\s])', r'\1.\2', cleaned_v, flags=re.MULTILINE)
-                     cleaned_v = cleaned_v.strip()
-                cleaned_data[k] = cleaned_v
-                # if original_type != cleaned_type:
-                #     logger.info(f"Paper {paper_id}: 字段 {k} 类型从 {original_type} 转换为 {cleaned_type}")
+                    clean_dict[k] = clean_value(v)
+                return str(clean_dict)
+            elif value is None:
+                return ""
             else:
-                 cleaned_data[k] = None # 确保所有预期键都存在
-                 logger.warning(f"Paper {paper_id}: LLM 响应缺少字段 '{k}'")
-
-        return cleaned_data
-       
+                return str(value).strip()
+        
+        # 清洗所有字段的值
+        for key in analysis_data:
+            analysis_data[key] = clean_value(analysis_data[key])
+        
+        return analysis_data
+            
     except json.JSONDecodeError as e:
-        logger.error(f"无法将LLM响应解析为JSON for {paper_id}: {e}")
-        logger.debug(f"原始响应文本 for {paper_id}: {json_string}")
+        logger.error(f"[{paper_id}] JSON解析错误: {e}")
+        logger.debug(f"[{paper_id}] 原始字符串: {json_string}")
         return None
     except Exception as e:
-        logger.error(f"解析和清理LLM响应时发生意外错误 for {paper_id}: {e}")
+        logger.error(f"[{paper_id}] 清理分析结果时出错: {e}")
         return None
-# ----------------------------------------------
 
 class PaperAnalysisService:
     """
@@ -497,7 +479,7 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
 
     async def analyze_paper(self, paper_id: str, timeout_seconds: int = 120) -> Optional[PaperAnalysis]:
         """
-        分析单篇论文：获取信息 -> 提取文本 -> 保存文本+字数 -> 调用LLM -> 解析结果 -> 保存分析
+        分析单篇论文：获取信息 -> 提取文本 -> 调用LLM -> 解析结果 -> 保存分析
         
         Args:
             paper_id: 论文ID
@@ -550,18 +532,10 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
         extracted_text, word_count = extraction_result # Unpack the tuple
         logger.info(f"[{paper_id}] PDF 文本提取完成，长度: {len(extracted_text)} 字符, 字数: {word_count}")
         
-        # 4. 保存提取的文本和字数到数据库 
-        if extracted_text: 
-             logger.info(f"[{paper_id}] 尝试保存提取的文本和字数 ({word_count}) 到数据库...")
-             # Pass word_count to the save function
-             save_text_success = await db_service.save_or_update_extracted_text(paper_id, extracted_text, word_count)
-             if save_text_success:
-                  logger.info(f"[{paper_id}] 成功保存提取的文本和字数")
-             else:
-                  logger.error(f"[{paper_id}] 保存提取的文本到数据库失败，但将继续尝试分析")
-        else:
-             logger.warning(f"[{paper_id}] 提取的文本为空，不保存到数据库，中止分析")
-             return None
+        # 已移除: 不再保存文本到数据库
+        if not extracted_text:
+            logger.warning(f"[{paper_id}] 提取的文本为空，中止分析")
+            return None
         
         # 5. 调用 LLM 服务生成分析 JSON 字符串 
         logger.info(f"[{paper_id}] 开始调用 LLM 服务生成分析...")
