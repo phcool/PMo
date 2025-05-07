@@ -144,7 +144,7 @@ async def save_search_history(
 
 @router.get("/search-history")
 async def get_search_history(
-    limit: int = Query(10, ge=1, le=50, description="Number of search history items to return"),
+    limit: int = Query(30, ge=1, le=50, description="Number of search history items to return"),
     x_user_id: Optional[str] = Header(None, description="User unique identifier")
 ):
     """
@@ -199,7 +199,7 @@ async def record_paper_view(
 
 @router.get("/paper-views", response_model=UserPaperViews)
 async def get_user_paper_views(
-    limit: int = Query(20, description="Maximum number of records to return", ge=1, le=50),
+    limit: int = Query(30, description="Maximum number of records to return", ge=1, le=50),
     days: int = Query(30, description="Only return records from the past number of days", ge=1, le=365),
     x_user_id: Optional[str] = Header(None, description="User unique identifier")
 ):

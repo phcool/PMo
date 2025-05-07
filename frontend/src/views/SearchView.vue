@@ -131,7 +131,8 @@ export default {
         
         // Use the API service with POST method
         const data = await api.searchPapers({
-          query: this.searchQuery.trim()
+          query: this.searchQuery.trim(),
+          limit: 30
         })
         
         // Process and validate results before assigning

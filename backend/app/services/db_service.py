@@ -221,7 +221,7 @@ class DBService:
         
         return papers
     
-    async def get_recent_papers(self, limit: int = 10, offset: int = 0) -> List[PaperResponse]:
+    async def get_recent_papers(self, limit: int = 30, offset: int = 0) -> List[PaperResponse]:
         """
         Get recent papers (with pagination)
         
@@ -261,7 +261,7 @@ class DBService:
         
         return papers
     
-    async def get_random_papers_by_category(self, categories: List[str], limit: int = 10, offset: int = 0) -> List[PaperResponse]:
+    async def get_random_papers_by_category(self, categories: List[str], limit: int = 30, offset: int = 0) -> List[PaperResponse]:
         """
         Get random papers from specified categories
         
@@ -418,7 +418,7 @@ class DBService:
             logger.error(f"Error getting paper analysis results: {e}")
             return None
 
-    async def get_papers_without_analysis(self, limit: int = 10) -> List[Paper]:
+    async def get_papers_without_analysis(self, limit: int = 30) -> List[Paper]:
         """
         Get papers without analysis
         
@@ -584,7 +584,7 @@ class DBService:
         
         return False
         
-    async def get_search_history(self, user_id: str, limit: int = 10) -> UserSearchHistory:
+    async def get_search_history(self, user_id: str, limit: int = 30) -> UserSearchHistory:
         """
         Get user search history
         
@@ -692,7 +692,7 @@ class DBService:
         
         return False
         
-    async def get_user_paper_views(self, user_id: str, limit: int = 20, days: int = 30) -> UserPaperViews:
+    async def get_user_paper_views(self, user_id: str, limit: int = 30, days: int = 30) -> UserPaperViews:
         """
         Get user paper viewing records
         
@@ -747,7 +747,7 @@ class DBService:
             updated_at=datetime.now() if views else None
         )
     
-    async def get_viewed_papers(self, user_id: str, limit: int = 10) -> List[Paper]:
+    async def get_viewed_papers(self, user_id: str, limit: int = 30) -> List[Paper]:
         """Get user's recently viewed papers list"""
         papers = []
         

@@ -74,7 +74,7 @@ class PaperResponse(BaseModel):
 class PaperSearchRequest(BaseModel):
     """Model for paper search request"""
     query: str = Field(..., description="Search query")
-    limit: int = Field(10, description="Maximum number of results to return", ge=1, le=100)
+    limit: int = Field(30, description="Maximum number of results to return", ge=1, le=100)
     categories: Optional[List[str]] = Field(None, description="Filter by categories")
 
 

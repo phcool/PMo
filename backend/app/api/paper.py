@@ -17,7 +17,7 @@ router = APIRouter()
 
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
     """
@@ -134,7 +134,7 @@ async def analyze_batch_papers():
 
 @router.get("/recommend/")
 async def get_recommended_papers(
-    limit: int = Query(5, description="Number of recommended papers"),
+    limit: int = Query(30, description="Number of recommended papers"),
     offset: int = Query(0, description="Recommended papers offset"),
     x_user_id: Optional[str] = Header(None, description="User unique identifier")
 ):

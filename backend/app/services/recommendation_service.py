@@ -129,7 +129,7 @@ class RecommendationService:
             logger.warning(f"Failed to calculate a valid weighted profile vector (total weight is 0)")
             return None, {}
 
-    async def recommend_papers(self, user_id: str, limit: int = 10, offset: int = 0) -> List[PaperResponse]:
+    async def recommend_papers(self, user_id: str, limit: int = 30, offset: int = 0) -> List[PaperResponse]:
         """
         Get personalized paper recommendations (hybrid strategy + reranking)
         

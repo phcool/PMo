@@ -194,7 +194,7 @@ class VectorSearchService:
             raise
     
     # Made search async
-    async def search(self, query: str, k: int = 10) -> List[str]:
+    async def search(self, query: str, k: int = 30) -> List[str]:
         """
         Asynchronously search for papers by query (query is typically a single text, no need for batching)
         """
@@ -234,7 +234,7 @@ class VectorSearchService:
             return []
             
     # search_by_vector remains synchronous as it doesn't need async embedding call
-    def search_by_vector(self, vector: np.ndarray, k: int = 10) -> Tuple[List[float], List[str]]:
+    def search_by_vector(self, vector: np.ndarray, k: int = 30) -> Tuple[List[float], List[str]]:
         """
         Search index using a pre-computed vector.
         

@@ -158,7 +158,10 @@ export default defineComponent({
         isSearching.value = true;
         searchResults.value = [];
         
-        const searchPayload = { query: query }; 
+        const searchPayload = { 
+          query: query,
+          limit: 30 
+        }; 
         const results = await api.searchPapers(searchPayload);
         
         // Adjust based on actual API response structure
