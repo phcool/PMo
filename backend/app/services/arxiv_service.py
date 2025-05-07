@@ -1,5 +1,6 @@
 import arxiv
 import logging
+import time
 from datetime import datetime
 from typing import List, Optional
 
@@ -29,7 +30,8 @@ class ArxivService:
     @staticmethod
     async def fetch_recent_papers(
         categories: List[str], 
-        max_results: int = 100
+        max_results: int = 100,
+        offset: int = 0
     ) -> List[Paper]:
         """
         Fetch recent papers from arXiv by categories
@@ -37,25 +39,44 @@ class ArxivService:
         Args:
             categories: List of arXiv categories
             max_results: Maximum number of results to return
+            offset: Number of results to skip (for pagination)
             
         Returns:
             List of Paper objects
         """
         try:
+            logger.info(f"从arXiv获取论文，类别: {categories}, 数量: {max_results}, 开始位置: {offset}")
+            
             # Create the search query for categories
             category_query = " OR ".join([f"cat:{category}" for category in categories])
             
-            # Get the client and search
-            client = arxiv.Client()
+            # Get the client
+            client = arxiv.Client(
+                page_size=100,  # 设置最大页面大小
+                delay_seconds=3,  # 防止请求过于频繁，可能被限速
+                num_retries=3  # 失败重试次数
+            )
+            
+            # 创建搜索对象
             search = arxiv.Search(
                 query=category_query,
-                max_results=max_results,
+                max_results=offset + max_results,  # 需要获取足够多以覆盖offset
                 sort_by=arxiv.SortCriterion.SubmittedDate,
                 sort_order=arxiv.SortOrder.Descending
             )
             
-            # Fetch results
-            results = list(client.results(search))
+            # Fetch all results
+            all_results = list(client.results(search))
+            
+            # 应用offset并限制数量
+            if offset > 0 and offset < len(all_results):
+                results = all_results[offset:offset + max_results]
+                logger.info(f"应用偏移: 获取到 {len(all_results)} 篇论文, 截取 {offset} 到 {offset + len(results)}")
+            else:
+                # 如果offset为0或超出范围，直接取前max_results个
+                results = all_results[:max_results]
+                if offset > 0:
+                    logger.warning(f"偏移量 {offset} 超出获取到的论文数量 {len(all_results)}")
             
             # Convert to Paper objects
             papers = []

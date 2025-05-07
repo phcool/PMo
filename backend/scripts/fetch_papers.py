@@ -7,6 +7,7 @@ import os
 import sys
 import asyncio
 import logging
+import time
 from datetime import datetime
 
 # Add the parent directory to the path so we can import our modules
@@ -61,39 +62,87 @@ DEFAULT_CATEGORIES = [
     "cs.SE"    # 软件工程
 ]
 
-# Maximum number of papers to fetch per run
-MAX_RESULTS = int(os.getenv("FETCH_MAX_RESULTS", "100"))
+# 批次大小：每次从arXiv获取的论文数量
+BATCH_SIZE = int(os.getenv("FETCH_BATCH_SIZE", "100"))
+
+# 总目标数量：希望获取的论文总数
+TOTAL_MAX_RESULTS = int(os.getenv("FETCH_TOTAL_MAX_RESULTS", "1000"))
+
+# 批次间延迟（秒）：避免频繁请求arXiv API
+BATCH_DELAY = int(os.getenv("FETCH_BATCH_DELAY", "3"))
+
+async def fetch_papers_batch(categories, skip, max_results):
+    """获取一批论文，带有起始偏移量"""
+    logger.info(f"获取第 {skip+1}-{skip+max_results} 篇论文...")
+    try:
+        papers = await ArxivService.fetch_recent_papers(
+            categories=categories,
+            max_results=max_results,
+            offset=skip
+        )
+        return papers
+    except Exception as e:
+        logger.error(f"获取批次论文失败 (skip={skip}): {e}", exc_info=True)
+        return []
 
 async def fetch_papers():
-    """Fetch papers from arXiv and store them in database and vector index."""
+    """使用分批获取的方式从arXiv获取论文，并存储到数据库和向量索引中"""
     start_time = datetime.now()
-    logger.info(f"Starting paper fetch job at {start_time}")
+    logger.info(f"开始论文获取任务，时间: {start_time}，目标数量: {TOTAL_MAX_RESULTS}")
+    
+    total_fetched = 0
+    total_added = 0
+    all_added_ids = set()
     
     try:
-        # Fetch papers from arXiv
-        papers = await ArxivService.fetch_recent_papers(
-            categories=DEFAULT_CATEGORIES,
-            max_results=MAX_RESULTS
-        )
-        
-        if not papers:
-            logger.info("No new papers found")
-            return
+        # 分批获取
+        for batch_start in range(0, TOTAL_MAX_RESULTS, BATCH_SIZE):
+            # 计算当前批次的大小
+            current_batch_size = min(BATCH_SIZE, TOTAL_MAX_RESULTS - batch_start)
             
-        # Add papers to database
-        added_ids = await db_service.add_papers(papers)
-        
-        # Add papers to vector search index
-        if added_ids:
-            papers_to_add = [p for p in papers if p.paper_id in added_ids]
-            await vector_search_service.add_papers(papers_to_add)
+            # 获取一批论文
+            batch_papers = await fetch_papers_batch(
+                categories=DEFAULT_CATEGORIES,
+                skip=batch_start,
+                max_results=current_batch_size
+            )
+            
+            if not batch_papers:
+                logger.info(f"批次 {batch_start//BATCH_SIZE + 1} 没有返回任何论文，停止获取")
+                break
+                
+            total_fetched += len(batch_papers)
+            
+            # 添加到数据库
+            added_ids = await db_service.add_papers(batch_papers)
+            
+            # 如果有新添加的论文，更新向量索引
+            if added_ids:
+                papers_to_add = [p for p in batch_papers if p.paper_id in added_ids]
+                await vector_search_service.add_papers(papers_to_add)
+                
+                all_added_ids.update(added_ids)
+                total_added += len(added_ids)
+                
+                logger.info(f"批次 {batch_start//BATCH_SIZE + 1}: 获取 {len(batch_papers)} 篇论文，添加 {len(added_ids)} 篇新论文")
+            else:
+                logger.info(f"批次 {batch_start//BATCH_SIZE + 1}: 获取 {len(batch_papers)} 篇论文，没有新论文添加")
+            
+            # 如果已经获取了足够的论文或者这批次返回的少于请求的，就停止
+            if total_fetched >= TOTAL_MAX_RESULTS or len(batch_papers) < current_batch_size:
+                break
+                
+            # 在批次之间添加延迟，避免对arXiv API发送太多请求
+            if batch_start + BATCH_SIZE < TOTAL_MAX_RESULTS:
+                logger.info(f"等待 {BATCH_DELAY} 秒后继续获取下一批...")
+                await asyncio.sleep(BATCH_DELAY)
             
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
-        logger.info(f"Fetch job completed in {duration:.2f} seconds. Fetched {len(papers)} papers, added {len(added_ids)} new papers.")
+        logger.info(f"获取任务完成，耗时 {duration:.2f} 秒。总共获取 {total_fetched} 篇论文，添加 {total_added} 篇新论文。")
         
     except Exception as e:
-        logger.error(f"Error in fetch job: {e}", exc_info=True)
+        logger.error(f"获取任务发生错误: {e}", exc_info=True)
 
 async def main():
     """Main entry point."""
@@ -103,12 +152,13 @@ async def main():
     
     # Log script start with a divider for readability in logs
     logger.info("=" * 80)
-    logger.info("Starting paper fetch script")
+    logger.info("启动论文获取脚本")
+    logger.info(f"配置: 批次大小={BATCH_SIZE}, 总目标数量={TOTAL_MAX_RESULTS}, 批次间延迟={BATCH_DELAY}秒")
     
     # Run the fetch job
     await fetch_papers()
     
-    logger.info("Paper fetch script completed")
+    logger.info("论文获取脚本完成")
     logger.info("=" * 80)
 
 if __name__ == "__main__":
