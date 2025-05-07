@@ -84,9 +84,9 @@ export default defineComponent({
       return abstract.substring(0, 250) + '...';
     });
     
-    // 记录论文浏览
+    // Record paper view
     const recordView = () => {
-      // 使用异步函数并捕获错误，但不阻塞用户操作
+      // Use async function and catch errors without blocking user interaction
       setTimeout(async () => {
         try {
           await api.recordPaperView(props.paper.paper_id);
@@ -118,11 +118,11 @@ export default defineComponent({
   transition: box-shadow 0.3s ease;
   display: flex;
   flex-direction: column;
-  height: calc(100% - 0.5rem); /* 减去bottom margin */
-  overflow: hidden; /* 防止内容溢出 */
-  width: 100%; /* 确保宽度不超过容器 */
-  max-width: 100%; /* 确保最大宽度不超过容器 */
-  box-sizing: border-box; /* 确保padding不增加元素总宽度 */
+  height: calc(100% - 0.5rem); /* Subtract bottom margin */
+  overflow: hidden; /* Prevent content overflow */
+  width: 100%; /* Ensure width doesn't exceed container */
+  max-width: 100%; /* Ensure max width doesn't exceed container */
+  box-sizing: border-box; /* Ensure padding doesn't increase element total width */
 }
 
 .paper-card:hover {
@@ -138,15 +138,15 @@ export default defineComponent({
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  height: 2.8em; /* 大约两行高度 */
-  width: 100%; /* 确保宽度不超过容器 */
+  height: 2.8em; /* Approximately two lines height */
+  width: 100%; /* Ensure width doesn't exceed container */
 }
 
 .paper-title a {
   color: #3f51b5;
   text-decoration: none;
   display: inline-block;
-  max-width: 100%; /* 确保链接不会超出容器 */
+  max-width: 100%; /* Ensure links don't exceed container */
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -176,7 +176,7 @@ export default defineComponent({
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
-  min-height: 1.8rem; /* 确保分类区域有最小高度 */
+  min-height: 1.8rem; /* Ensure categories area has minimum height */
 }
 
 .category-tag {
@@ -196,13 +196,13 @@ export default defineComponent({
   -webkit-box-orient: vertical;
   overflow: hidden;
   flex-grow: 1;
-  height: 4.5em; /* 大约三行高度 */
+  height: 4.5em; /* Approximately three lines height */
 }
 
 .paper-actions {
   display: flex;
   gap: 0.75rem;
-  margin-top: auto; /* 将操作按钮推到底部 */
+  margin-top: auto; /* Push action buttons to the bottom */
 }
 
 .action-button {

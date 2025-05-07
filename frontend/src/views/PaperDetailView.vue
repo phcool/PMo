@@ -50,7 +50,7 @@
           <p>{{ paper.abstract }}</p>
         </div>
         
-        <!-- 分析结果 -->
+        <!-- Analysis results -->
         <div v-if="paper.analysis" class="paper-analysis">
           <h2>AI Analysis Results</h2>
           
@@ -85,7 +85,7 @@
           </div>
         </div>
         
-        <!-- 分析控制 -->
+        <!-- Analysis controls -->
         <div v-else class="paper-analysis-control">
           <div v-if="isAnalyzing" class="analyzing">
             <p>Analyzing paper... This may take several minutes. Please be patient.</p>
@@ -95,7 +95,7 @@
             <p class="no-analysis-message">This paper has not been analyzed yet.</p>
           </div>
           
-          <!-- 分析错误提示 -->
+          <!-- Analysis error message -->
           <div v-if="analysisError" class="analysis-error">
             <p>{{ analysisError }}</p>
             <button @click="analysisError = null" class="action-button">Dismiss</button>
@@ -119,7 +119,7 @@
 <script>
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '../services/api'  // 移除.ts后缀
+import api from '../services/api'  // Remove .ts extension
 import { getCategoryLabel } from '../types/paper'
 
 export default defineComponent({
@@ -158,29 +158,36 @@ export default defineComponent({
     
     // Go back to previous page
     const goBack = () => {
-      // 保存上一页的滚动位置到 sessionStorage
+      // Save previous page scroll position to sessionStorage
       if (document.referrer.includes(window.location.host)) {
-        // 获取来源页面的路径
+        // Get the referring page path
         const referrer = new URL(document.referrer).pathname;
-        // 将之前保存的滚动位置恢复到 sessionStorage
+        // Restore the previously saved scroll position to sessionStorage
         sessionStorage.setItem(`scrollPos-${referrer}`, '0');
       }
       router.go(-1);
     };
     
-    // 分析论文
+    // Analyze paper
     const analyzePaper = async () => {
       if (!paper.value || isAnalyzing.value) return;
       
       try {
         isAnalyzing.value = true;
         
-        // 调用分析API
+        // Call analysis API
         await api.analyzePaper(paper.value.paper_id);
         
-        // 获取最新的论文数据（包含分析结果）
+        // Get the latest paper data (including analysis results)
         paper.value = await api.getPaperById(paper.value.paper_id);
         
+        // Record paper view
+        try {
+          await api.recordPaperView(paper.value.paper_id);
+        } catch (e) {
+          console.error('Error recording paper view:', e);
+          // Does not affect main process, only logs the error
+        }
       } catch (e) {
         console.error('Error analyzing paper:', e);
         analysisError.value = 'An error occurred while analyzing the paper. Please try again later.';
@@ -200,15 +207,15 @@ export default defineComponent({
       }
       
       try {
-        // 获取论文详情
+        // Get paper details
         paper.value = await api.getPaperById(paperId);
         
-        // 记录论文浏览
+        // Record paper view
         try {
           await api.recordPaperView(paperId);
         } catch (e) {
           console.error('Error recording paper view:', e);
-          // 不影响主流程，仅记录错误
+          // Does not affect main process, only logs the error
         }
       } catch (e) {
         console.error('Error fetching paper details:', e);
@@ -268,7 +275,7 @@ export default defineComponent({
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* 分栏布局 */
+/* Split layout */
 .split-layout {
   display: flex;
   gap: 2rem;
@@ -398,7 +405,7 @@ export default defineComponent({
   overflow-wrap: break-word;
 }
 
-/* 响应式布局 */
+/* Responsive layout */
 @media (max-width: 900px) {
   .split-layout {
     flex-direction: column;
@@ -468,9 +475,9 @@ export default defineComponent({
   margin: 1rem 0;
 }
 
-/* 分析文本样式 */
+/* Analysis text style */
 .analysis-text {
-  white-space: pre-line; /* 保留换行符 */
+  white-space: pre-line; /* Preserve newlines */
   line-height: 1.6;
   margin-top: 0.5rem;
 }
@@ -496,5 +503,12 @@ export default defineComponent({
   background-color: #f8f9fa;
   border-radius: 8px;
   text-align: center;
+}
+
+/* Responsive layout */
+@media (max-width: 768px) {
+  .paper-container {
+    padding: 1.5rem;
+  }
 }
 </style> 

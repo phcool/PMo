@@ -13,10 +13,10 @@ router = APIRouter()
 @router.post("/", response_model=PaperSearchResponse)
 async def search_papers(search_request: PaperSearchRequest):
     """
-    使用向量搜索查找论文
+    Search for papers using vector search
     """
     try:
-        # 获取与查询匹配的论文ID
+        # Get paper IDs matching the query
         paper_ids = await vector_search_service.search(
             query=search_request.query,
             k=search_request.limit
@@ -25,10 +25,10 @@ async def search_papers(search_request: PaperSearchRequest):
         if not paper_ids:
             return PaperSearchResponse(results=[], count=0)
         
-        # 从数据库中获取论文详情
+        # Get paper details from the database
         papers = await db_service.get_papers_by_ids(paper_ids)
         
-        # 如果指定了分类，则按分类筛选
+        # Filter by categories if specified
         if search_request.categories:
             papers = [
                 p for p in papers if any(
@@ -36,7 +36,7 @@ async def search_papers(search_request: PaperSearchRequest):
                 )
             ]
         
-        # 转换为响应模型
+        # Convert to response model
         paper_responses = [
             PaperResponse(
                 paper_id=p.paper_id,
@@ -56,8 +56,8 @@ async def search_papers(search_request: PaperSearchRequest):
         )
         
     except Exception as e:
-        logger.error(f"搜索论文时出错: {e}")
+        logger.error(f"Error searching papers: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"搜索论文时出错: {str(e)}"
+            detail=f"Error searching papers: {str(e)}"
         ) 

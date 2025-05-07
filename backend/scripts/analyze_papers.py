@@ -33,9 +33,9 @@ async def analyze_papers(process_all=True, max_papers=None, concurrency=2):
     Analyze papers that haven't been analyzed yet.
     
     Args:
-        process_all: 是否处理所有待分析论文
-        max_papers: 最大处理论文数量
-        concurrency: 最大并发处理数，默认为2，避免API限流
+        process_all: Whether to process all pending papers
+        max_papers: Maximum number of papers to process
+        concurrency: Maximum concurrent processes, default is 2 to avoid API rate limiting
     """
     start_time = datetime.now()
     logger.info(f"Starting paper analysis job at {start_time}")
@@ -47,7 +47,7 @@ async def analyze_papers(process_all=True, max_papers=None, concurrency=2):
             logger.warning("Another analysis process is already running. Skipping this run.")
             return
         
-        # 直接调用analyze_pending_papers并等待其完成，处理所有论文
+        # Directly call analyze_pending_papers and wait for completion, processing all papers
         logger.info("Starting paper analysis and waiting for completion")
         result = await paper_analysis_service.analyze_pending_papers(
             process_all=process_all, 
@@ -78,17 +78,17 @@ async def analyze_papers(process_all=True, max_papers=None, concurrency=2):
 
 async def main():
     """Main entry point."""
-    # 解析命令行参数
+    # Parse command line arguments
     parser = argparse.ArgumentParser(description='Analyze papers that have been fetched.')
     parser.add_argument('--limit', type=int, help='Maximum number of papers to analyze')
     parser.add_argument('--batch', action='store_true', help='Use batch mode instead of processing all papers')
     parser.add_argument('--concurrency', type=int, default=2, help='Maximum concurrent analyses (default: 2)')
     args = parser.parse_args()
     
-    # 根据命令行参数设置配置
-    process_all = not args.batch  # 默认处理所有论文，除非指定--batch
-    max_papers = args.limit  # 可以是None或整数
-    concurrency = args.concurrency  # 并发数
+    # Configure settings based on command line arguments
+    process_all = not args.batch  # Process all papers by default, unless --batch is specified
+    max_papers = args.limit  # Can be None or an integer
+    concurrency = args.concurrency  # Concurrency level
     
     # Create logs directory if it doesn't exist
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')

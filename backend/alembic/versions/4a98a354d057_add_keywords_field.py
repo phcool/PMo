@@ -19,10 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """添加关键词字段到论文分析表"""
-    op.add_column('paper_analysis', sa.Column('keywords', sa.Text(), nullable=True))
+    """Add keywords field to paper analysis table"""
+    op.add_column('paper_analysis', sa.Column('keywords', sa.String(), nullable=True))
 
 
 def downgrade() -> None:
-    """删除论文分析表中的关键词字段"""
+    """Remove keywords field from paper analysis table"""
     op.drop_column('paper_analysis', 'keywords')

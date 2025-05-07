@@ -11,7 +11,7 @@ router = APIRouter()
 @router.get("/status")
 async def get_scheduler_status():
     """
-    获取论文获取与分析定时任务的状态
+    Get the status of the paper fetch and analysis scheduler
     """
     return scheduler_service.status
 
@@ -21,7 +21,7 @@ async def manual_fetch_papers(
     max_results: int = Body(50)
 ):
     """
-    手动触发论文获取任务
+    Manually trigger the paper fetch task
     """
     result = await scheduler_service.manual_fetch(categories=categories, max_results=max_results)
     return result
@@ -29,7 +29,7 @@ async def manual_fetch_papers(
 @router.post("/analyze")
 async def manual_analyze_papers():
     """
-    手动触发论文分析任务
+    Manually trigger the paper analysis task
     """
     result = await scheduler_service.manual_analyze()
     return result
@@ -37,23 +37,23 @@ async def manual_analyze_papers():
 @router.post("/start")
 async def start_scheduler():
     """
-    启动论文获取与分析定时任务
+    Start the paper fetch and analysis scheduler
     """
     try:
         scheduler_service.start()
-        return {"status": "success", "message": "论文获取与分析定时任务已启动"}
+        return {"status": "success", "message": "Paper fetch and analysis scheduler started"}
     except Exception as e:
-        logger.error(f"启动定时任务失败: {e}")
-        raise HTTPException(status_code=500, detail=f"启动定时任务失败: {str(e)}")
+        logger.error(f"Failed to start the scheduler: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start the scheduler: {str(e)}")
 
 @router.post("/stop")
 async def stop_scheduler():
     """
-    停止论文获取与分析定时任务
+    Stop the paper fetch and analysis scheduler
     """
     try:
         scheduler_service.stop()
-        return {"status": "success", "message": "论文获取与分析定时任务已停止"}
+        return {"status": "success", "message": "Paper fetch and analysis scheduler stopped"}
     except Exception as e:
-        logger.error(f"停止定时任务失败: {e}")
-        raise HTTPException(status_code=500, detail=f"停止定时任务失败: {str(e)}") 
+        logger.error(f"Failed to stop the scheduler: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to stop the scheduler: {str(e)}") 

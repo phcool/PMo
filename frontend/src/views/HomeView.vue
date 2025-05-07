@@ -484,7 +484,7 @@ export default defineComponent({
   margin-top: 1.5rem;
 }
 
-/* 响应式布局调整 */
+/* Responsive layout adjustments */
 @media (max-width: 960px) {
   .papers-container {
     flex-direction: column;

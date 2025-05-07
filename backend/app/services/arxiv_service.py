@@ -15,13 +15,13 @@ class ArxivService:
     @staticmethod
     def _remove_timezone(dt):
         """
-        移除日期时间对象的时区信息
+        Remove timezone information from a datetime object
         
         Args:
-            dt: 带时区的日期时间对象
+            dt: Datetime object with timezone
             
         Returns:
-            不带时区的日期时间对象
+            Datetime object without timezone
         """
         if dt and dt.tzinfo:
             return dt.replace(tzinfo=None)
@@ -45,22 +45,22 @@ class ArxivService:
             List of Paper objects
         """
         try:
-            logger.info(f"从arXiv获取论文，类别: {categories}, 数量: {max_results}, 开始位置: {offset}")
+            logger.info(f"Fetching papers from arXiv, categories: {categories}, count: {max_results}, offset: {offset}")
             
             # Create the search query for categories
             category_query = " OR ".join([f"cat:{category}" for category in categories])
             
             # Get the client
             client = arxiv.Client(
-                page_size=100,  # 设置最大页面大小
-                delay_seconds=3,  # 防止请求过于频繁，可能被限速
-                num_retries=3  # 失败重试次数
+                page_size=100,  # Set maximum page size
+                delay_seconds=3,  # Prevent too frequent requests that might be rate-limited
+                num_retries=3  # Number of retry attempts on failure
             )
             
-            # 创建搜索对象
+            # Create search object
             search = arxiv.Search(
                 query=category_query,
-                max_results=offset + max_results,  # 需要获取足够多以覆盖offset
+                max_results=offset + max_results,  # Need to fetch enough to cover the offset
                 sort_by=arxiv.SortCriterion.SubmittedDate,
                 sort_order=arxiv.SortOrder.Descending
             )
@@ -68,20 +68,20 @@ class ArxivService:
             # Fetch all results
             all_results = list(client.results(search))
             
-            # 应用offset并限制数量
+            # Apply offset and limit count
             if offset > 0 and offset < len(all_results):
                 results = all_results[offset:offset + max_results]
-                logger.info(f"应用偏移: 获取到 {len(all_results)} 篇论文, 截取 {offset} 到 {offset + len(results)}")
+                logger.info(f"Applying offset: Retrieved {len(all_results)} papers, slicing from {offset} to {offset + len(results)}")
             else:
-                # 如果offset为0或超出范围，直接取前max_results个
+                # If offset is 0 or exceeds range, take the first max_results
                 results = all_results[:max_results]
                 if offset > 0:
-                    logger.warning(f"偏移量 {offset} 超出获取到的论文数量 {len(all_results)}")
+                    logger.warning(f"Offset {offset} exceeds number of papers retrieved {len(all_results)}")
             
             # Convert to Paper objects
             papers = []
             for result in results:
-                # 处理日期时间，移除时区信息
+                # Process datetime, remove timezone information
                 published_date = ArxivService._remove_timezone(result.published)
                 updated_date = ArxivService._remove_timezone(result.updated)
                 
@@ -98,11 +98,11 @@ class ArxivService:
                 )
                 papers.append(paper)
                 
-            logger.info(f"已从arXiv获取 {len(papers)} 篇论文")
+            logger.info(f"Retrieved {len(papers)} papers from arXiv")
             return papers
             
         except Exception as e:
-            logger.error(f"从arXiv获取论文时出错: {e}")
+            logger.error(f"Error fetching papers from arXiv: {e}")
             raise
             
     @staticmethod
@@ -128,7 +128,7 @@ class ArxivService:
                 return None
                 
             result = results[0]
-            # 处理日期时间，移除时区信息
+            # Process datetime, remove timezone information
             published_date = ArxivService._remove_timezone(result.published)
             updated_date = ArxivService._remove_timezone(result.updated)
             
@@ -147,5 +147,5 @@ class ArxivService:
             return paper
             
         except Exception as e:
-            logger.error(f"获取论文 {paper_id} 时出错: {e}")
+            logger.error(f"Error fetching paper {paper_id}: {e}")
             return None 

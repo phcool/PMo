@@ -1,11 +1,11 @@
 import logging
 from typing import List, Dict, Any, Set, Optional, Tuple
 from datetime import datetime, timedelta # Import timedelta
-import numpy as np # 导入 numpy
+import numpy as np # Import numpy
 import random
 import math # Import math for time decay
 
-from app.models.paper import Paper, PaperResponse # PaperResponse 也需要导入，如果recommend_papers返回它
+from app.models.paper import Paper, PaperResponse # PaperResponse also needs to be imported if recommend_papers returns it
 from app.services.db_service import db_service
 from app.services.vector_search_service import vector_search_service
 from app.services.llm_service import llm_service # Needed for embedding model info
@@ -19,7 +19,7 @@ TIME_DECAY_HALFLIFE_DAYS = 14 # Interest halves every 14 days
 # -----------------------------------------
 
 class RecommendationService:
-    """推荐服务 - 使用加权向量画像、混合策略和重排序进行个性化推荐"""
+    """Recommendation service - Using weighted vector profiles, hybrid strategies and reranking for personalized recommendations"""
     
     async def build_user_profile(
         self,
@@ -28,22 +28,22 @@ class RecommendationService:
         view_limit: int = 20   # Increased limit slightly
     ) -> Tuple[Optional[np.ndarray], Dict[str, float]]:
         """
-        构建用户加权兴趣画像向量和偏好分类。
+        Build a weighted user interest profile vector and preferred categories.
 
         Args:
-            user_id: 用户ID
-            search_limit: 使用的最近搜索记录数量
-            view_limit: 使用的最近浏览记录数量
+            user_id: User ID
+            search_limit: Number of recent search records to use
+            view_limit: Number of recent view records to use
 
         Returns:
-            一个元组: (用户加权画像向量, 用户偏好分类字典 {category: weight})。
-            如果无法构建则返回 (None, {})。
+            A tuple: (user weighted profile vector, user preferred categories dict {category: weight}).
+            Returns (None, {}) if profile cannot be built.
         """
         profile_items = [] # List of (text, weight, timestamp)
         preferred_categories = {} # {category: total_weight}
         now = datetime.now()
 
-        # 1. 获取用户搜索历史并计算权重
+        # 1. Get user search history and calculate weights
         try:
             search_history = await db_service.get_search_history(user_id, limit=search_limit)
             if search_history and search_history.searches:
@@ -54,9 +54,9 @@ class RecommendationService:
                     if time_weight > 0.01: # Ignore very old interactions
                          profile_items.append((item.query, time_weight, item.timestamp))
         except Exception as e:
-            logger.error(f"获取用户 {user_id} 搜索历史时出错: {e}")
+            logger.error(f"Error getting search history for user {user_id}: {e}")
 
-        # 2. 获取用户浏览历史并计算权重
+        # 2. Get user viewing history and calculate weights
         try:
             viewed_papers = await db_service.get_viewed_papers(user_id, limit=view_limit)
             if viewed_papers:
@@ -81,13 +81,13 @@ class RecommendationService:
                             preferred_categories[category] = preferred_categories.get(category, 0) + time_weight
                             
         except Exception as e:
-            logger.error(f"获取用户 {user_id} 浏览历史或处理分类时出错: {e}", exc_info=True)
+            logger.error(f"Error getting or processing view history for user {user_id}: {e}", exc_info=True)
 
         if not profile_items:
-            logger.info(f"用户 {user_id} 没有足够的近期历史记录来构建画像向量")
+            logger.info(f"User {user_id} doesn't have enough recent history to build a profile vector")
             return None, {}
 
-        # 3. 批量获取所有文本的嵌入向量
+        # 3. Batch get embeddings for all texts
         texts_to_embed = [item[0] for item in profile_items]
         try:
             # Use the batch embedding method from vector_search_service
@@ -95,14 +95,14 @@ class RecommendationService:
             embeddings_list = await vector_search_service._embed_texts(texts_to_embed)
             
             if embeddings_list is None or len(embeddings_list) != len(profile_items):
-                 logger.warning(f"未能为用户 {user_id} 的 {len(profile_items)} 个画像文本生成足够嵌入向量")
+                 logger.warning(f"Failed to generate enough embeddings for user {user_id}'s {len(profile_items)} profile texts")
                  return None, {}
                  
         except Exception as e:
-            logger.error(f"为用户 {user_id} 的画像文本获取嵌入时出错: {e}")
+            logger.error(f"Error getting embeddings for user {user_id}'s profile texts: {e}")
             return None, {}
 
-        # 4. 计算加权平均向量
+        # 4. Calculate weighted average vector
         total_weight = 0
         weighted_sum_vector = np.zeros(vector_search_service.embedding_dim, dtype=np.float32)
         
@@ -123,36 +123,36 @@ class RecommendationService:
                  for cat in preferred_categories:
                       preferred_categories[cat] /= total_cat_weight
                       
-            logger.info(f"成功为用户 {user_id} 构建加权画像向量和 {len(preferred_categories)} 个偏好分类")
+            logger.info(f"Successfully built weighted profile vector for user {user_id} with {len(preferred_categories)} preferred categories")
             return profile_vector, preferred_categories
         else:
-            logger.warning(f"无法为用户 {user_id} 计算有效的加权画像向量 (总权重为0)")
+            logger.warning(f"Failed to calculate a valid weighted profile vector (total weight is 0)")
             return None, {}
 
     async def recommend_papers(self, user_id: str, limit: int = 10, offset: int = 0) -> List[PaperResponse]:
         """
-        获取个性化推荐论文 (混合策略 + 重排序)
+        Get personalized paper recommendations (hybrid strategy + reranking)
         
         Args:
-            user_id: 用户ID
-            limit: 返回的推荐论文数量
-            offset: 分页偏移量，用于加载更多功能
+            user_id: User ID
+            limit: Number of recommended papers to return
+            offset: Pagination offset for loading more
             
         Returns:
-            推荐论文列表
+            List of recommended papers
         """
-        # 1. 构建用户画像
+        # 1. Build user profile
         profile_vector, preferred_categories = await self.build_user_profile(user_id)
         
         if profile_vector is None:
-            logger.info(f"无法为用户 {user_id} 生成画像，无法进行个性化推荐")
-            return [] # API层将处理随机推荐
+            logger.info(f"Unable to generate profile for user {user_id}, cannot provide personalized recommendations")
+            return [] # API layer will handle random recommendations
 
-        # --- 2. 候选生成 --- 
+        # --- 2. Candidate generation --- 
         candidate_papers: Dict[str, Dict[str, Any]] = {} # {paper_id: {paper: Paper, score: float, source: str}}
         search_k = (limit + offset) * 4 # Increase Faiss candidate pool size to account for offset
         
-        # 2.1 Faiss 相似度搜索
+        # 2.1 Faiss similarity search
         try:
             distances, similar_ids = vector_search_service.search_by_vector(profile_vector, k=search_k)
             if similar_ids:
@@ -163,27 +163,27 @@ class RecommendationService:
                            # Score based on similarity (higher is better)
                            similarity_score = 1.0 / (1.0 + distances[i]) if distances[i] >= 0 else 0 
                            candidate_papers[paper_id] = {"paper": paper_map[paper_id], "score": similarity_score, "source": "faiss"}
-                 logger.info(f"Faiss 找到 {len(similar_ids)} 个相似候选论文 for user {user_id}")
+                 logger.info(f"Faiss found {len(similar_ids)} similar candidate papers for user {user_id}")
         except Exception as e:
-             logger.error(f"Faiss 相似度搜索失败 for user {user_id}: {e}")
+             logger.error(f"Faiss similarity search failed for user {user_id}: {e}")
              
-        # 2.2 全局最新论文
+        # 2.2 Global latest papers
         try:
              recent_limit = limit + offset # Get enough papers for offset
              recent_papers = await db_service.get_recent_papers(limit=recent_limit)
              for paper in recent_papers:
                   if paper.paper_id not in candidate_papers: # Avoid duplicates
                        candidate_papers[paper.paper_id] = {"paper": paper, "score": 0.1, "source": "recent"} # Lower base score
-             logger.info(f"获取了 {len(recent_papers)} 篇全局最新论文作为候选")
+             logger.info(f"Retrieved {len(recent_papers)} global latest papers as candidates")
         except Exception as e:
-             logger.error(f"获取全局最新论文失败: {e}")
+             logger.error(f"Failed to retrieve global latest papers: {e}")
 
         if not candidate_papers:
-             logger.warning(f"未能为用户 {user_id} 生成任何候选推荐论文")
+             logger.warning(f"Failed to generate any candidate recommended papers for user {user_id}")
              return []
              
-        # --- 3. 过滤 --- 
-        # 3.1 过滤已读论文
+        # --- 3. Filtering --- 
+        # 3.1 Filter read papers
         viewed_paper_ids = set()
         try:
             viewed_data = await db_service.get_user_paper_views(user_id, limit=100) # Fetch reasonable number of views
@@ -193,15 +193,15 @@ class RecommendationService:
                  candidate_papers = {pid: data for pid, data in candidate_papers.items() if pid not in viewed_paper_ids}
                  filtered_count = original_count - len(candidate_papers)
                  if filtered_count > 0:
-                      logger.info(f"从候选集中过滤了 {filtered_count} 篇用户已读论文 for user {user_id}")
+                      logger.info(f"Filtered {filtered_count} user read papers from candidate set for user {user_id}")
         except Exception as e:
-             logger.error(f"过滤用户 {user_id} 已读论文时出错: {e}")
+             logger.error(f"Error filtering user {user_id} read papers: {e}")
 
         if not candidate_papers:
-             logger.warning(f"过滤已读后，没有剩余候选推荐论文 for user {user_id}")
+             logger.warning(f"Filtered read papers, no remaining candidate recommended papers for user {user_id}")
              return []
              
-        # --- 4. 重排序 --- 
+        # --- 4. Reranking --- 
         ranked_candidates = []
         now = datetime.now()
         
@@ -227,7 +227,7 @@ class RecommendationService:
         # Sort by final score (descending)
         ranked_candidates.sort(key=lambda x: x["score"], reverse=True)
         
-        # --- 5. 多样化选择 Top Limit --- 
+        # --- 5. Diversified selection Top Limit --- 
         final_recommendations = []
         category_counts: Dict[str, int] = {} # Count selected categories
         max_per_category = max(1, limit // 3) # Limit papers from the same primary category
@@ -258,7 +258,7 @@ class RecommendationService:
                        final_recommendations.append(candidate)
                        remaining_needed -= 1
                        
-        # --- 6. 格式化输出 --- 
+        # --- 6. Format output --- 
         output_papers = []
         
         # Apply offset and limit for pagination
@@ -277,8 +277,8 @@ class RecommendationService:
                  updated_at=paper.updated_date 
              ))
              
-        logger.info(f"为用户 {user_id} 生成了 {len(output_papers)} 条优化后的个性化推荐 (偏移量: {offset})")
+        logger.info(f"Generated {len(output_papers)} optimized personalized recommendations for user {user_id} (offset: {offset})")
         return output_papers
 
-# 创建全局推荐服务实例
+# Create global recommendation service instance
 recommendation_service = RecommendationService() 

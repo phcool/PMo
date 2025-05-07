@@ -17,22 +17,22 @@ logger = logging.getLogger(__name__)
 
 class DBService:
     """
-    PostgreSQL数据库服务，用于存储和检索论文数据
+    PostgreSQL database service for storing and retrieving paper data
     """
     
     def __init__(self):
-        """初始化数据库服务"""
+        """Initialize database service"""
         pass
     
     async def add_papers(self, papers: List[Paper]) -> List[str]:
         """
-        添加论文到数据库
+        Add papers to the database
         
         Args:
-            papers: 要添加的论文列表
+            papers: List of papers to add
             
         Returns:
-            添加的论文ID列表
+            List of added paper IDs
         """
         if not papers:
             return []
@@ -40,15 +40,15 @@ class DBService:
         added_ids = []
         async for db in get_async_db():
             try:
-                # 收集所有作者和分类名称
+                # Collect all author and category names
                 all_author_names = set()
                 all_category_names = set()
                 
                 papers_to_add = []
                 
-                # 首先检查哪些论文需要添加，并收集所有作者和分类
+                # First check which papers need to be added and collect all authors and categories
                 for paper in papers:
-                    # 检查论文是否已存在
+                    # Check if paper already exists
                     result = await db.execute(
                         select(DBPaper).where(DBPaper.paper_id == paper.paper_id)
                     )
@@ -57,7 +57,7 @@ class DBService:
                     if existing_paper:
                         continue
                     
-                    # 收集作者和分类名称
+                    # Collect author and category names
                     all_author_names.update(paper.authors)
                     all_category_names.update(paper.categories)
                     papers_to_add.append(paper)
@@ -65,7 +65,7 @@ class DBService:
                 if not papers_to_add:
                     return []
                 
-                # 一次性查询所有已存在的作者和分类
+                # Query all existing authors and categories at once
                 existing_authors = {}
                 if all_author_names:
                     result = await db.execute(
@@ -82,16 +82,16 @@ class DBService:
                     for category in result.scalars().all():
                         existing_categories[category.name] = category
                 
-                # 一次性创建不存在的作者和分类
+                # Create non-existing authors and categories at once
                 authors_to_create = all_author_names - existing_authors.keys()
                 if authors_to_create:
-                    # 使用VALUES子句一次性插入多个作者
+                    # Use VALUES clause to insert multiple authors at once
                     author_objects = [DBAuthor(name=name) for name in authors_to_create]
                     db.add_all(author_objects)
-                    # 立即提交作者数据，避免后续插入时的冲突
+                    # Immediately commit author data to avoid conflicts in subsequent inserts
                     await db.flush()
                     
-                    # 再次查询获取所有作者，包括新创建的
+                    # Query again to get all authors, including newly created ones
                     result = await db.execute(
                         select(DBAuthor).where(DBAuthor.name.in_(all_author_names))
                     )
@@ -104,14 +104,14 @@ class DBService:
                     db.add_all(category_objects)
                     await db.flush()
                     
-                    # 再次查询获取所有分类，包括新创建的
+                    # Query again to get all categories, including newly created ones
                     result = await db.execute(
                         select(DBCategory).where(DBCategory.name.in_(all_category_names))
                     )
                     for category in result.scalars().all():
                         existing_categories[category.name] = category
                 
-                # 现在添加论文及其关联
+                # Now add papers and their associations
                 for paper in papers_to_add:
                     db_paper = DBPaper(
                         paper_id=paper.paper_id,
@@ -122,11 +122,11 @@ class DBService:
                         updated_date=paper.updated_date
                     )
                     
-                    # 添加作者关联
+                    # Add author associations
                     for author_name in paper.authors:
                         db_paper.authors.append(existing_authors[author_name])
                     
-                    # 添加分类关联
+                    # Add category associations
                     for category_name in paper.categories:
                         db_paper.categories.append(existing_categories[category_name])
                     
@@ -134,24 +134,24 @@ class DBService:
                     added_ids.append(paper.paper_id)
                 
                 await db.commit()
-                logger.info(f"添加了 {len(added_ids)} 篇论文到数据库")
+                logger.info(f"Added {len(added_ids)} papers to the database")
                 
             except Exception as e:
                 await db.rollback()
-                logger.error(f"添加论文失败: {e}")
+                logger.error(f"Failed to add papers: {e}")
                 raise
             
         return added_ids
     
     async def get_paper_by_id(self, paper_id: str) -> Optional[Paper]:
         """
-        通过ID获取论文
+        Get paper by ID
         
         Args:
-            paper_id: 论文ID
+            paper_id: Paper ID
             
         Returns:
-            论文对象或None（如果未找到）
+            Paper object or None (if not found)
         """
         async for db in get_async_db():
             result = await db.execute(
@@ -168,7 +168,7 @@ class DBService:
             if not db_paper:
                 return None
             
-            # 转换为API模型
+            # Convert to API model
             return Paper(
                 paper_id=db_paper.paper_id,
                 title=db_paper.title,
@@ -178,20 +178,20 @@ class DBService:
                 pdf_url=db_paper.pdf_url,
                 published_date=db_paper.published_date,
                 updated_date=db_paper.updated_date,
-                embedding=None  # 嵌入向量存储在faiss中
+                embedding=None  # Embedding stored in faiss
             )
         
         return None
     
     async def get_papers_by_ids(self, paper_ids: List[str]) -> List[Paper]:
         """
-        通过ID列表获取多篇论文
+        Get multiple papers by IDs
         
         Args:
-            paper_ids: 论文ID列表
+            paper_ids: List of paper IDs
             
         Returns:
-            论文对象列表
+            List of paper objects
         """
         papers = []
         async for db in get_async_db():
@@ -205,7 +205,7 @@ class DBService:
             )
             db_papers = result.scalars().all()
             
-            # 转换为API模型
+            # Convert to API model
             for db_paper in db_papers:
                 papers.append(Paper(
                     paper_id=db_paper.paper_id,
@@ -216,21 +216,21 @@ class DBService:
                     pdf_url=db_paper.pdf_url,
                     published_date=db_paper.published_date,
                     updated_date=db_paper.updated_date,
-                    embedding=None  # 嵌入向量存储在faiss中
+                    embedding=None  # Embedding stored in faiss
                 ))
         
         return papers
     
     async def get_recent_papers(self, limit: int = 10, offset: int = 0) -> List[PaperResponse]:
         """
-        获取最近的论文（带分页）
+        Get recent papers (with pagination)
         
         Args:
-            limit: 返回的最大论文数
-            offset: 要跳过的论文数
+            limit: Maximum number of papers to return
+            offset: Number of papers to skip
             
         Returns:
-            PaperResponse对象列表
+            List of PaperResponse objects
         """
         papers = []
         async for db in get_async_db():
@@ -246,7 +246,7 @@ class DBService:
             )
             db_papers = result.scalars().all()
             
-            # 转换为API模型
+            # Convert to API model
             for db_paper in db_papers:
                 papers.append(PaperResponse(
                     paper_id=db_paper.paper_id,
@@ -263,15 +263,15 @@ class DBService:
     
     async def get_random_papers_by_category(self, categories: List[str], limit: int = 10, offset: int = 0) -> List[PaperResponse]:
         """
-        从指定分类中随机获取论文
+        Get random papers from specified categories
         
         Args:
-            categories: 分类名称列表
-            limit: 返回的最大论文数
-            offset: 分页偏移量
+            categories: List of category names
+            limit: Maximum number of papers to return
+            offset: Page offset
             
         Returns:
-            PaperResponse对象列表
+            List of PaperResponse objects
         """
         papers = []
         if not categories:
@@ -287,16 +287,16 @@ class DBService:
                         selectinload(DBPaper.categories)
                     )
                     .where(DBCategory.name.in_(categories))
-                    .order_by(func.random())  # 使用数据库的随机函数
-                    .offset(offset)  # 添加偏移量支持
+                    .order_by(func.random())  # Use database's random function
+                    .offset(offset)  # Add offset support
                     .limit(limit)
                 )
                 
                 result = await db.execute(stmt)
-                # 使用 distinct() 避免因多分类关联导致重复论文
+                # Use distinct() to avoid repeated papers due to multiple category associations
                 db_papers = result.scalars().unique().all() 
                 
-                # 转换为API模型
+                # Convert to API model
                 for db_paper in db_papers:
                     papers.append(PaperResponse(
                         paper_id=db_paper.paper_id,
@@ -309,18 +309,18 @@ class DBService:
                         updated_date=db_paper.updated_date
                     ))
             except Exception as e:
-                logger.error(f"按分类随机获取论文时出错: {e}")
-                # 可以选择返回空列表或重新抛出异常
+                logger.error(f"Error getting papers by category: {e}")
+                # Optionally return an empty list or rethrow the exception
                 return []
         
         return papers
     
     async def count_papers(self) -> int:
         """
-        计算数据库中的论文总数
+        Count the total number of papers in the database
         
         Returns:
-            论文数量
+            Number of papers
         """
         async for db in get_async_db():
             result = await db.execute(select(func.count()).select_from(DBPaper))
@@ -330,13 +330,13 @@ class DBService:
 
     async def save_paper_analysis(self, analysis: PaperAnalysis) -> bool:
         """
-        保存论文分析结果
+        Save paper analysis results
         
         Args:
-            analysis: 论文分析对象
+            analysis: Paper analysis object
             
         Returns:
-            操作是否成功
+            Whether the operation was successful
         """
         try:
             async for db in get_async_db():
@@ -354,7 +354,7 @@ class DBService:
                     db_analysis.future_work = analysis.future_work
                     db_analysis.keywords = analysis.keywords
                     db_analysis.updated_at = datetime.utcnow()
-                    logger.info(f"更新论文分析: {analysis.paper_id}")
+                    logger.info(f"Updated paper analysis: {analysis.paper_id}")
                 else:
                     # Create new analysis
                     db_analysis = DBPaperAnalysis(
@@ -370,26 +370,26 @@ class DBService:
                         updated_at=datetime.utcnow()
                     )
                     db.add(db_analysis)
-                    logger.info(f"创建新的论文分析: {analysis.paper_id}")
+                    logger.info(f"Created new paper analysis: {analysis.paper_id}")
                 
                 await db.commit()
                 return True
         
         except Exception as e:
             await db.rollback()
-            logger.error(f"保存论文分析失败 {analysis.paper_id}: {e}")
+            logger.error(f"Failed to save paper analysis {analysis.paper_id}: {e}")
             return False
         return False # Should not happen if get_async_db works
 
     async def get_paper_analysis(self, paper_id: str) -> Optional[PaperAnalysis]:
         """
-        获取论文分析结果
+        Get paper analysis results
         
         Args:
-            paper_id: 论文ID
+            paper_id: Paper ID
             
         Returns:
-            论文分析对象或None（如果未找到）
+            Paper analysis object or None (if not found)
         """
         try:
             async for db in get_async_db():
@@ -415,22 +415,22 @@ class DBService:
                 )
         
         except Exception as e:
-            logger.error(f"获取论文分析结果时出错：{e}")
+            logger.error(f"Error getting paper analysis results: {e}")
             return None
 
     async def get_papers_without_analysis(self, limit: int = 10) -> List[Paper]:
         """
-        获取未分析的论文
+        Get papers without analysis
         
         Args:
-            limit: 最大返回数量
+            limit: Maximum return count
             
         Returns:
-            论文列表
+            List of papers
         """
         papers = []
         async for db in get_async_db():
-            # 查询没有关联分析的论文
+            # Query papers without associated analysis
             stmt = (
                 select(DBPaper)
                 .options(
@@ -460,16 +460,16 @@ class DBService:
                 
         return papers
 
-    # 用户偏好相关方法
+    # User preferences related methods
     async def get_user_preferences(self, user_id: str) -> Optional[UserPreferences]:
         """
-        获取用户访问记录
+        Get user access records
         
         Args:
-            user_id: 用户ID
+            user_id: User ID
             
         Returns:
-            用户访问记录或None（如果不存在）
+            User access records or None (if not exist)
         """
         async for db in get_async_db():
             result = await db.execute(
@@ -492,17 +492,17 @@ class DBService:
         
     async def save_user_preferences(self, user_prefs: UserPreferences) -> bool:
         """
-        保存用户访问记录
+        Save user access records
         
         Args:
-            user_prefs: 用户访问记录
+            user_prefs: User access records
             
         Returns:
-            是否成功保存
+            Whether the records were successfully saved
         """
         async for db in get_async_db():
             try:
-                # 查询用户是否已存在
+                # Query if user already exists
                 result = await db.execute(
                     select(DBUserPreferences)
                     .where(DBUserPreferences.user_id == user_prefs.user_id)
@@ -512,11 +512,11 @@ class DBService:
                 now = datetime.now()
                 
                 if existing_prefs:
-                    # 更新现有记录
+                    # Update existing records
                     existing_prefs.ip_prefix = user_prefs.ip_prefix
                     existing_prefs.last_visited_at = now
                 else:
-                    # 创建新记录
+                    # Create new records
                     db_prefs = DBUserPreferences(
                         user_id=user_prefs.user_id,
                         ip_prefix=user_prefs.ip_prefix,
@@ -526,31 +526,31 @@ class DBService:
                     db.add(db_prefs)
                 
                 await db.commit()
-                logger.info(f"用户访问记录已保存: {user_prefs.user_id}")
+                logger.info(f"User access records saved: {user_prefs.user_id}")
                 return True
                 
             except Exception as e:
                 await db.rollback()
-                logger.error(f"保存用户访问记录失败: {e}")
+                logger.error(f"Failed to save user access records: {e}")
                 return False
         
         return False
 
-    # 用户搜索历史相关方法
+    # User search history related methods
     async def save_search_history(self, user_id: str, query: str) -> bool:
         """
-        保存用户搜索历史
+        Save user search history
         
         Args:
-            user_id: 用户ID
-            query: 搜索查询
+            user_id: User ID
+            query: Search query
             
         Returns:
-            是否成功保存
+            Whether the records were successfully saved
         """
         async for db in get_async_db():
             try:
-                # 创建搜索历史记录
+                # Create search history records
                 search_history = DBUserSearchHistory(
                     user_id=user_id,
                     query=query,
@@ -558,8 +558,8 @@ class DBService:
                 )
                 db.add(search_history)
                 
-                # 限制每个用户的搜索历史数量为20条
-                # 删除最旧的记录
+                # Limit search history to 20 records per user
+                # Delete the oldest record
                 stmt = (
                     select(DBUserSearchHistory)
                     .where(DBUserSearchHistory.user_id == user_id)
@@ -574,26 +574,26 @@ class DBService:
                     await db.delete(record)
                 
                 await db.commit()
-                logger.info(f"用户搜索历史已保存: {user_id}, 查询: {query}")
+                logger.info(f"User search history saved: {user_id}, Query: {query}")
                 return True
                 
             except Exception as e:
                 await db.rollback()
-                logger.error(f"保存用户搜索历史失败: {e}")
+                logger.error(f"Failed to save user search history: {e}")
                 return False
         
         return False
         
     async def get_search_history(self, user_id: str, limit: int = 10) -> UserSearchHistory:
         """
-        获取用户搜索历史
+        Get user search history
         
         Args:
-            user_id: 用户ID
-            limit: 最大返回数量
+            user_id: User ID
+            limit: Maximum return count
             
         Returns:
-            用户搜索历史
+            User search history
         """
         searches = []
         
@@ -618,7 +618,7 @@ class DBService:
                     )
                 
             except Exception as e:
-                logger.error(f"获取用户搜索历史时出错: {e}")
+                logger.error(f"Error getting user search history: {e}")
         
         return UserSearchHistory(
             user_id=user_id,
@@ -628,31 +628,31 @@ class DBService:
         
     async def record_paper_view(self, user_id: str, paper_id: str) -> bool:
         """
-        记录用户论文浏览记录
+        Record user paper viewing records
         
         Args:
-            user_id: 用户ID
-            paper_id: 论文ID
+            user_id: User ID
+            paper_id: Paper ID
             
         Returns:
-            是否成功记录
+            Whether the records were successfully recorded
         """
         if not user_id or not paper_id:
             return False
             
         async for db in get_async_db():
             try:
-                # 检查论文是否存在
+                # Check if paper exists
                 paper_result = await db.execute(
                     select(DBPaper).where(DBPaper.paper_id == paper_id)
                 )
                 paper = paper_result.scalars().first()
                 
                 if not paper:
-                    logger.warning(f"记录浏览记录失败：论文不存在 {paper_id}")
+                    logger.warning(f"Failed to record viewing record: Paper does not exist {paper_id}")
                     return False
                 
-                # 检查今天是否已经有该用户浏览该论文的记录
+                # Check if today already has a record of this user viewing this paper
                 today = datetime.now().date()
                 view_stmt = (
                     select(DBUserPaperView)
@@ -667,11 +667,11 @@ class DBService:
                 existing_view = result.scalars().first()
                 
                 if existing_view:
-                    # 更新现有记录
+                    # Update existing records
                     existing_view.view_count += 1
                     existing_view.last_viewed_at = datetime.now()
                 else:
-                    # 创建新记录
+                    # Create new records
                     new_view = DBUserPaperView(
                         user_id=user_id,
                         paper_id=paper_id,
@@ -687,22 +687,22 @@ class DBService:
                 
             except Exception as e:
                 await db.rollback()
-                logger.error(f"记录用户论文浏览记录时出错: {e}")
+                logger.error(f"Failed to record user paper viewing record: {e}")
                 return False
         
         return False
         
     async def get_user_paper_views(self, user_id: str, limit: int = 20, days: int = 30) -> UserPaperViews:
         """
-        获取用户论文浏览记录
+        Get user paper viewing records
         
         Args:
-            user_id: 用户ID
-            limit: 最大返回数量
-            days: 只返回最近多少天的记录
+            user_id: User ID
+            limit: Maximum return count
+            days: Only return records from the past how many days
             
         Returns:
-            用户论文浏览记录
+            User paper viewing records
         """
         if not user_id:
             return UserPaperViews(user_id=user_id, views=[], updated_at=None)
@@ -713,7 +713,7 @@ class DBService:
         
         async for db in get_async_db():
             try:
-                # 获取用户最近的浏览记录，并联表查询论文标题
+                # Get user's recent viewing records and join table query paper title
                 stmt = (
                     select(DBUserPaperView, DBPaper.title)
                     .join(DBPaper, DBUserPaperView.paper_id == DBPaper.paper_id)
@@ -739,7 +739,7 @@ class DBService:
                     )
                 
             except Exception as e:
-                logger.error(f"获取用户论文浏览记录时出错: {e}")
+                logger.error(f"Error getting user paper viewing records: {e}")
         
         return UserPaperViews(
             user_id=user_id,
@@ -748,12 +748,12 @@ class DBService:
         )
     
     async def get_viewed_papers(self, user_id: str, limit: int = 10) -> List[Paper]:
-        """获取用户最近浏览过的论文列表"""
+        """Get user's recently viewed papers list"""
         papers = []
         
         async for db in get_async_db():
             try:
-                # 获取用户最近浏览的论文ID列表
+                # Get user's recently viewed paper ID list
                 stmt = text("""
                     SELECT DISTINCT user_paper_views.paper_id, user_paper_views.last_viewed_at
                     FROM user_paper_views
@@ -768,16 +768,16 @@ class DBService:
                 if not paper_ids:
                     return []
                 
-                # 获取论文详情
+                # Get paper details
                 papers = await self.get_papers_by_ids(paper_ids)
-                # 保持与查询结果相同的顺序
+                # Keep the order consistent with the query results
                 papers.sort(key=lambda p: paper_ids.index(p.paper_id))
                 
             except Exception as e:
-                logger.error(f"获取用户浏览过的论文时出错: {e}")
+                logger.error(f"Error getting user's viewed papers: {e}")
                 return []
                 
         return papers
 
-# 创建一个全局实例
+# Create a global instance
 db_service = DBService() 

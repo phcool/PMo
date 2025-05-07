@@ -17,14 +17,14 @@ depends_on = None
 
 
 def upgrade():
-    # 删除表和索引
+    # Delete table and indexes
     op.drop_index(op.f('ix_user_visited_papers_user_id'), table_name='user_visited_papers')
     op.drop_index(op.f('ix_user_visited_papers_id'), table_name='user_visited_papers')
     op.drop_table('user_visited_papers')
 
 
 def downgrade():
-    # 重新创建用户访问过的论文记录表
+    # Recreate the user visited papers records table
     op.create_table(
         'user_visited_papers',
         sa.Column('id', sa.Integer(), nullable=False),

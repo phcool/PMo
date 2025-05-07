@@ -5,21 +5,21 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from dotenv import load_dotenv
 
-# 加载环境变量
+# Load environment variables
 load_dotenv()
 
-# 获取数据库URL
+# Get database URL
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/dlmonitor")
-# 转换为异步URL
+# Convert to async URL
 ASYNC_DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+asyncpg://')
 
-# 创建同步数据库引擎 (用于Alembic等工具)
+# Create synchronous database engine (for tools like Alembic)
 engine = create_engine(DATABASE_URL)
 
-# 创建异步数据库引擎 (用于应用)
+# Create asynchronous database engine (for application)
 async_engine = create_async_engine(ASYNC_DATABASE_URL)
 
-# 创建会话工厂
+# Create session factories
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 AsyncSessionLocal = sessionmaker(
     autocommit=False, 
@@ -28,10 +28,10 @@ AsyncSessionLocal = sessionmaker(
     class_=AsyncSession
 )
 
-# 获取Base类的引用（已在models.db_models中定义）
+# Get Base class reference (already defined in models.db_models)
 from app.models.db_models import Base
 
-# 获取数据库会话 (同步)
+# Get database session (synchronous)
 def get_db():
     db = SessionLocal()
     try:
@@ -39,7 +39,7 @@ def get_db():
     finally:
         db.close()
 
-# 获取数据库会话 (异步)
+# Get database session (asynchronous)
 async def get_async_db():
     async with AsyncSessionLocal() as db:
         try:

@@ -17,13 +17,13 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 创建用户搜索历史表
+    # Create user search history table
     op.create_table(
         'user_search_history',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('user_id', sa.String(), nullable=False),
         sa.Column('query', sa.String(), nullable=False),
-        sa.Column('timestamp', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+        sa.Column('searched_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_user_search_history_id'), 'user_search_history', ['id'], unique=False)
@@ -31,7 +31,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 删除用户搜索历史表
+    # Delete user search history table
     op.drop_index(op.f('ix_user_search_history_user_id'), table_name='user_search_history')
     op.drop_index(op.f('ix_user_search_history_id'), table_name='user_search_history')
     op.drop_table('user_search_history') 

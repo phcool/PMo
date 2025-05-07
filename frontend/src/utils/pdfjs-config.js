@@ -1,4 +1,4 @@
-// 检查是否已有 PDF.js 库
+// Check if PDF.js library already exists
 let pdfLibPromise = null;
 
 function initPdfLib() {
@@ -7,18 +7,18 @@ function initPdfLib() {
   }
   
   pdfLibPromise = new Promise((resolve) => {
-    // 如果已经加载，直接返回
+    // If already loaded, return directly
     if (window.pdfjsLib) {
       resolve(window.pdfjsLib);
       return;
     }
 
-    // 检查 PDF.js 是否已加载
+    // Check if PDF.js is already loaded
     function checkPdfjs() {
       if (window.pdfjsLib) {
         resolve(window.pdfjsLib);
       } else {
-        // 继续等待
+        // Continue waiting
         setTimeout(checkPdfjs, 100);
       }
     }
@@ -29,7 +29,7 @@ function initPdfLib() {
   return pdfLibPromise;
 }
 
-// 导出一个获取 PDF.js 库的异步函数
+// Export an async function to get the PDF.js library
 export default function getPdfLib() {
   return initPdfLib();
 } 

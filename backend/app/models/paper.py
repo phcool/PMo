@@ -19,9 +19,9 @@ class Paper(BaseModel):
         json_schema_extra = {
             "example": {
                 "paper_id": "2105.12345",
-                "title": "A Novel Approach to Deep Learning",
-                "authors": ["John Doe", "Jane Smith"],
-                "abstract": "In this paper, we present a novel approach to deep learning...",
+                "title": "Advances in Deep Learning",
+                "authors": ["John Smith", "Jane Doe"],
+                "abstract": "This paper presents advances in deep learning...",
                 "categories": ["cs.LG", "cs.AI"],
                 "pdf_url": "https://arxiv.org/pdf/2105.12345.pdf",
                 "published_date": "2023-05-20T00:00:00",
@@ -31,21 +31,21 @@ class Paper(BaseModel):
 
 
 class PaperAnalysis(BaseModel):
-    """论文PDF分析结果模型"""
-    paper_id: str = Field(..., description="论文ID")
-    summary: Optional[str] = Field(None, description="论文总结")
-    key_findings: Optional[str] = Field(None, description="关键发现")
-    contributions: Optional[str] = Field(None, description="主要贡献")
-    methodology: Optional[str] = Field(None, description="方法论")
-    limitations: Optional[str] = Field(None, description="局限性")
-    future_work: Optional[str] = Field(None, description="未来工作")
-    keywords: Optional[str] = Field(None, description="论文关键词")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
+    """Paper PDF analysis result model"""
+    paper_id: str = Field(..., description="Paper ID")
+    summary: Optional[str] = Field(None, description="Paper summary")
+    key_findings: Optional[str] = Field(None, description="Key findings")
+    contributions: Optional[str] = Field(None, description="Main contributions")
+    methodology: Optional[str] = Field(None, description="Methodology")
+    limitations: Optional[str] = Field(None, description="Limitations")
+    future_work: Optional[str] = Field(None, description="Future work")
+    keywords: Optional[str] = Field(None, description="Paper keywords")
+    created_at: datetime = Field(..., description="Creation time")
+    updated_at: datetime = Field(..., description="Update time")
 
 
 class PaperAnalysisResponse(BaseModel):
-    """论文PDF分析结果响应模型"""
+    """Paper PDF analysis result response model"""
     paper_id: str
     summary: Optional[str] = None
     key_findings: Optional[str] = None

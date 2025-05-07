@@ -2,21 +2,21 @@ import axios from 'axios';
 import type { Paper, SearchRequest, SearchResponse, PaperAnalysis } from '@/types/paper';
 import userService from './user';
 
-// 创建axios实例
+// Create axios instance
 const api = axios.create({
-  baseURL: '',  // 使用空字符串作为baseURL，避免路径问题
+  baseURL: '',  // Use empty string as baseURL to avoid path issues
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// 添加请求拦截器，在每个请求中添加用户ID
+// Add request interceptor to include user ID in every request
 api.interceptors.request.use(config => {
-  // 获取用户ID
+  // Get user ID
   const userId = userService.getUserId();
   
-  // 在请求头中添加用户ID
+  // Add user ID to request header
   if (userId) {
     config.headers['X-User-ID'] = userId;
   }
@@ -88,7 +88,7 @@ export default {
    */
   async analyzePaper(paperId: string): Promise<any> {
     const response = await api.post(`/api/papers/${paperId}/analyze`, null, {
-      timeout: 300000 // 5分钟超时，论文分析是一个耗时操作
+      timeout: 300000 // 5 minute timeout, paper analysis is a time-consuming operation
     });
     return response.data;
   },
@@ -102,7 +102,7 @@ export default {
   },
   
   /**
-   * 获取用户访问记录
+   * Get user access records
    */
   async getUserPreferences(): Promise<any> {
     const response = await api.get('/api/user/user');
@@ -110,7 +110,7 @@ export default {
   },
   
   /**
-   * 保存用户访问记录
+   * Save user access records
    */
   async saveUserPreferences(preferences: any): Promise<any> {
     const response = await api.post('/api/user/user', preferences);
@@ -144,7 +144,7 @@ export default {
   },
   
   /**
-   * 记录用户论文浏览记录
+   * Record user paper viewing history
    */
   async recordPaperView(paperId: string): Promise<any> {
     const response = await api.post(`/api/user/paper-view/${paperId}`);
@@ -152,7 +152,7 @@ export default {
   },
   
   /**
-   * 获取用户论文浏览记录
+   * Get user paper viewing history
    */
   async getUserPaperViews(limit: number = 20, days: number = 30): Promise<any> {
     const response = await api.get('/api/user/paper-views', {

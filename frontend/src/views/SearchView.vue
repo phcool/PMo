@@ -99,7 +99,7 @@ export default {
     }
   },
   activated() {
-    // 从sessionStorage恢复滚动位置
+    // Restore scroll position from sessionStorage
     const path = this.$route.fullPath;
     const savedPosition = sessionStorage.getItem(`scrollPos-${path}`);
     
@@ -113,7 +113,7 @@ export default {
     }
   },
   deactivated() {
-    // 保存滚动位置到sessionStorage
+    // Save scroll position to sessionStorage
     const path = this.$route.fullPath;
     sessionStorage.setItem(`scrollPos-${path}`, window.scrollY.toString());
   },

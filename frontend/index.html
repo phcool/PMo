@@ -6,10 +6,10 @@
   <link rel="icon" href="/favicon.ico">
   <title>DL Paper Monitor</title>
   <meta name="description" content="A tool for monitoring and searching deep learning research papers">
-  <!-- PDF.js 库 -->
+  <!-- PDF.js library -->
   <script src="/pdfjs/pdf.js"></script>
   <script>
-    // 设置 PDF.js worker
+    // Set up PDF.js worker
     window.addEventListener('load', function() {
       if (window.pdfjsLib) {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.js';

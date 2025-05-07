@@ -2,13 +2,13 @@ const webpack = require('webpack');
 
 module.exports = {
   resolve: {
-    // 将Vue指向完整的构建版本
+    // Point Vue to the complete build version
     alias: {
       'vue$': 'vue/dist/vue.esm-bundler.js'
     }
   },
   plugins: [
-    // 定义编译时特性标志
+    // Define compile-time feature flags
     new webpack.DefinePlugin({
       __VUE_OPTIONS_API__: JSON.stringify(true),
       __VUE_PROD_DEVTOOLS__: JSON.stringify(false),

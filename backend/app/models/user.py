@@ -3,47 +3,47 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 class UserPreferences(BaseModel):
-    """用户访问记录模型"""
-    user_id: str = Field(..., description="用户唯一标识")
-    ip_prefix: Optional[str] = Field(None, description="用户IP的前一部分")
-    last_visited_at: datetime = Field(default_factory=datetime.now, description="最后访问时间")
-    created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
+    """User access records model"""
+    user_id: str = Field(..., description="User unique identifier")
+    ip_prefix: Optional[str] = Field(None, description="First part of user's IP address")
+    last_visited_at: datetime = Field(default_factory=datetime.now, description="Last visit time")
+    created_at: datetime = Field(default_factory=datetime.now, description="Creation time")
 
 class UserPreferencesResponse(BaseModel):
-    """用户访问记录响应模型"""
+    """User access records response model"""
     user_id: str
     ip_prefix: Optional[str] = None
     last_visited_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
 class SearchHistoryItem(BaseModel):
-    """搜索历史项目模型"""
-    query: str = Field(..., description="搜索查询")
-    timestamp: datetime = Field(..., description="搜索时间")
+    """Search history item model"""
+    query: str = Field(..., description="Search query")
+    timestamp: datetime = Field(..., description="Search time")
 
 class UserSearchHistory(BaseModel):
-    """用户搜索历史模型"""
-    user_id: str = Field(..., description="用户唯一标识")
-    searches: List[SearchHistoryItem] = Field(default=[], description="搜索历史列表")
-    updated_at: Optional[datetime] = Field(None, description="最后更新时间")
+    """User search history model"""
+    user_id: str = Field(..., description="User unique identifier")
+    searches: List[SearchHistoryItem] = Field(default=[], description="Search history list")
+    updated_at: Optional[datetime] = Field(None, description="Last update time")
 
 class UserSearchHistoryResponse(BaseModel):
-    """用户搜索历史响应模型"""
+    """User search history response model"""
     user_id: str
     searches: List[SearchHistoryItem]
     updated_at: Optional[datetime] = None
 
 class PaperViewItem(BaseModel):
-    """论文浏览记录项"""
-    paper_id: str = Field(..., description="论文ID")
-    title: Optional[str] = Field(None, description="论文标题")
-    view_date: datetime = Field(..., description="浏览日期")
-    view_count: int = Field(1, description="浏览次数")
-    first_viewed_at: datetime = Field(..., description="首次浏览时间")
-    last_viewed_at: datetime = Field(..., description="最近浏览时间")
+    """Paper viewing record item"""
+    paper_id: str = Field(..., description="Paper ID")
+    title: Optional[str] = Field(None, description="Paper title")
+    view_date: datetime = Field(..., description="View date")
+    view_count: int = Field(1, description="View count")
+    first_viewed_at: datetime = Field(..., description="First view time")
+    last_viewed_at: datetime = Field(..., description="Most recent view time")
 
 class UserPaperViews(BaseModel):
-    """用户论文浏览历史"""
-    user_id: str = Field(..., description="用户ID")
-    views: List[PaperViewItem] = Field(default=[], description="论文浏览记录")
-    updated_at: Optional[datetime] = Field(None, description="最后更新时间") 
+    """User paper viewing history"""
+    user_id: str = Field(..., description="User ID")
+    views: List[PaperViewItem] = Field(default=[], description="Paper viewing records")
+    updated_at: Optional[datetime] = Field(None, description="Last update time") 

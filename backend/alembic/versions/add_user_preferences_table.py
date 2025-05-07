@@ -18,19 +18,22 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 创建用户偏好表
+    # Create user preferences table
     op.create_table(
         'user_preferences',
+        sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('user_id', sa.String(), nullable=False),
-        sa.Column('preferences', JSONB(), nullable=False, server_default='{}'),
-        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-        sa.PrimaryKeyConstraint('user_id')
+        sa.Column('ip_prefix', sa.String(), nullable=True),
+        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column('last_visited_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_user_preferences_user_id'), 'user_preferences', ['user_id'], unique=False)
+    op.create_index(op.f('ix_user_preferences_ip_prefix'), 'user_preferences', ['ip_prefix'], unique=False)
 
 
 def downgrade() -> None:
-    # 删除用户偏好表
+    # Delete user preferences table
+    op.drop_index(op.f('ix_user_preferences_ip_prefix'), table_name='user_preferences')
     op.drop_index(op.f('ix_user_preferences_user_id'), table_name='user_preferences')
     op.drop_table('user_preferences') 

@@ -32,7 +32,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior() {
-    // 禁用自动滚动，由组件自行控制
+    // Disable automatic scrolling, let components control it
     return false;
   }
 })

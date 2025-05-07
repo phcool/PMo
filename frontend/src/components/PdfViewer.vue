@@ -2,19 +2,19 @@
   <div class="pdf-viewer-container">
     <div v-if="loading" class="loading">
       <div class="loading-spinner"></div>
-      <p>加载PDF中...</p>
+      <p>Loading PDF...</p>
     </div>
     
-    <!-- 错误信息 -->
+    <!-- Error message -->
     <div v-if="error" class="error">
       <p>{{ error }}</p>
       <div class="pdf-actions">
-        <button @click="reloadPdf" class="action-button">重试</button>
-        <a :href="pdfUrl" target="_blank" class="action-button primary">在新窗口打开</a>
+        <button @click="reloadPdf" class="action-button">Retry</button>
+        <a :href="pdfUrl" target="_blank" class="action-button primary">Open in new window</a>
       </div>
     </div>
     
-    <!-- 使用对象标签嵌入PDF -->
+    <!-- Use object tag to embed PDF -->
     <object 
       v-show="!loading"
       ref="pdfObject"
@@ -23,10 +23,10 @@
       class="pdf-object"
     >
       <div class="pdf-fallback">
-        <p>您的浏览器无法直接显示PDF文件。</p>
-        <p>您可以 <a :href="pdfUrl" target="_blank">下载PDF</a> 或 
+        <p>Your browser cannot display PDF files directly.</p>
+        <p>You can <a :href="pdfUrl" target="_blank">download the PDF</a> or 
           <a :href="'https://docs.google.com/viewer?url=' + encodeURIComponent(pdfUrl) + '&embedded=true'" target="_blank">
-            在Google Docs中查看
+            view it in Google Docs
           </a>
         </p>
       </div>
@@ -70,23 +70,23 @@ export default {
         const pdfObject = this.$refs.pdfObject;
         
         if (pdfObject) {
-          // 监听加载完成事件
+          // Listen for load complete event
           pdfObject.onload = () => {
-            console.log('PDF 加载完成');
+            console.log('PDF loading complete');
             this.loading = false;
           };
           
-          // 设置30秒超时
+          // Set 30 second timeout
           setTimeout(() => {
             if (this.loading) {
-              // 如果仍在加载，可能是卡住了
+              // If still loading, it might be stuck
               if (pdfObject.contentDocument && 
                   pdfObject.contentDocument.body && 
                   pdfObject.contentDocument.body.childElementCount === 0) {
-                this.error = "PDF加载超时，请尝试在新窗口中打开";
+                this.error = "PDF loading timed out, please try opening in a new window";
                 this.loading = false;
               } else {
-                // 加载成功但没有触发onload
+                // Loaded successfully but onload wasn't triggered
                 this.loading = false;
               }
             }

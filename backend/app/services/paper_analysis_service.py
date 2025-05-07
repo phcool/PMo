@@ -18,20 +18,20 @@ logger = logging.getLogger(__name__)
 
 def clean_latex_formula(formula: str) -> str:
     """
-    清理LaTeX数学公式，尝试将其转换为可读的普通文本
+    Clean LaTeX math formulas, attempting to convert them to readable plain text
     
     Args:
-        formula: LaTeX公式字符串
+        formula: LaTeX formula string
     
     Returns:
-        清理后的可读文本
+        Cleaned readable text
     """
-    # 去除首尾空白
+    # Remove whitespace from beginning and end
     formula = formula.strip()
     
-    # 替换常见的LaTeX命令
+    # Replace common LaTeX commands
     replacements = {
-        # 字体和格式命令
+        # Font and format commands
         r'\\bf{([^}]+)}': r'\1',
         r'\\mathbf{([^}]+)}': r'\1',
         r'\\it{([^}]+)}': r'\1',
@@ -43,14 +43,14 @@ def clean_latex_formula(formula: str) -> str:
         r'\\mathrm{([^}]+)}': r'\1',
         r'\\emph{([^}]+)}': r'\1',
         
-        # 空格和分隔符
+        # Spaces and separators
         r'\\space': ' ',
         r'\\,': ' ',
         r'\\;': ' ',
         r'\\quad': '  ',
         r'\\qquad': '    ',
         
-        # 常见的数学符号
+        # Common mathematical symbols
         r'\\times': 'x',
         r'\\div': '/',
         r'\\pm': '+/-',
@@ -66,15 +66,15 @@ def clean_latex_formula(formula: str) -> str:
         r'\\Rightarrow': '=>',
         r'\\Leftarrow': '<=',
         
-        # 上下标
+        # Superscripts and subscripts
         r'\^{([^}]+)}': r'^(\1)',
         r'\_([a-zA-Z0-9])': r'_\1',
         r'\_\{([^}]+)\}': r'_(\1)',
         
-        # 分数
+        # Fractions
         r'\\frac{([^}]+)}{([^}]+)}': r'(\1)/(\2)',
         
-        # 括号
+        # Brackets
         r'\\left\(': '(',
         r'\\right\)': ')',
         r'\\left\[': '[',
@@ -82,7 +82,7 @@ def clean_latex_formula(formula: str) -> str:
         r'\\left\\{': '{',
         r'\\right\\}': '}',
         
-        # 希腊字母（常见）
+        # Greek letters (common)
         r'\\alpha': 'alpha',
         r'\\beta': 'beta',
         r'\\gamma': 'gamma',
@@ -95,75 +95,75 @@ def clean_latex_formula(formula: str) -> str:
         r'\\omega': 'omega',
     }
     
-    # 应用所有替换
+    # Apply all replacements
     for pattern, replacement in replacements.items():
         formula = re.sub(pattern, replacement, formula)
     
-    # 移除任何剩余的LaTeX命令
+    # Remove any remaining LaTeX commands
     formula = re.sub(r'\\[a-zA-Z]+', '', formula)
     
-    # 移除多余的空格
+    # Remove excess spaces
     formula = re.sub(r'\s+', ' ', formula).strip()
     
     return formula
 
 def clean_text_for_api(text: str) -> str:
     """
-    清理文本，使其对API友好：
-    1. 删除无效的Unicode字符和代理对
-    2. 替换不常见的Unicode字符为基本ASCII替代
-    3. 处理其他潜在的编码问题
-    4. 确保换行符正确显示
-    5. 处理LaTeX数学符号
+    Clean text to make it API-friendly:
+    1. Remove invalid Unicode characters and surrogate pairs
+    2. Replace uncommon Unicode characters with basic ASCII alternatives
+    3. Handle other potential encoding issues
+    4. Ensure line breaks display correctly
+    5. Process LaTeX mathematical symbols
     
     Args:
-        text: 原始文本
+        text: Original text
         
     Returns:
-        清理后的文本
+        Cleaned text
     """
     if not text:
         return ""
         
-    # 删除null字节(0x00)，这会导致PostgreSQL UTF-8编码错误
+    # Remove null bytes (0x00), which cause PostgreSQL UTF-8 encoding errors
     text = text.replace('\x00', '')
         
-    # 删除surrogate pairs和无效Unicode字符
-    # \ud800-\udfff是Unicode代理对范围
+    # Remove surrogate pairs and invalid Unicode characters
+    # \ud800-\udfff is the Unicode surrogate pair range
     text = re.sub(r'[\ud800-\udfff]', '', text)
     
-    # 处理LaTeX数学公式
-    # 处理特定的模式
-    text = re.sub(r'\$\\bf\{(\d+)\s*\\space\s*([^}]+)\}\$', r'\1 \2', text)  # 如 $\bf{3 \space billion}$
+    # Process LaTeX math formulas
+    # Handle specific patterns
+    text = re.sub(r'\$\\bf\{(\d+)\s*\\space\s*([^}]+)\}\$', r'\1 \2', text)  # Like $\bf{3 \space billion}$
     
-    # 简单的数学公式（单行的$...$）
-    text = re.sub(r'\$\\bf\{([^}]+)\}\$', r'\1', text)  # 替换粗体命令 \bf{...}
-    text = re.sub(r'\$\\mathbf\{([^}]+)\}\$', r'\1', text)  # 替换粗体命令 \mathbf{...}
-    text = re.sub(r'\$\\it\{([^}]+)\}\$', r'\1', text)  # 替换斜体命令 \it{...}
-    text = re.sub(r'\$\\mathit\{([^}]+)\}\$', r'\1', text)  # 替换斜体命令 \mathit{...}
-    text = re.sub(r'\$\\space\$', ' ', text)  # 替换空格命令 \space
-    text = re.sub(r'\$\\([a-zA-Z]+)\$', r'\1', text)  # 替换其他简单命令 \command
+    # Simple math formulas (single-line $...$)
+    text = re.sub(r'\$\\bf\{([^}]+)\}\$', r'\1', text)  # Replace bold command \bf{...}
+    text = re.sub(r'\$\\mathbf\{([^}]+)\}\$', r'\1', text)  # Replace bold command \mathbf{...}
+    text = re.sub(r'\$\\it\{([^}]+)\}\$', r'\1', text)  # Replace italic command \it{...}
+    text = re.sub(r'\$\\mathit\{([^}]+)\}\$', r'\1', text)  # Replace italic command \mathit{...}
+    text = re.sub(r'\$\\space\$', ' ', text)  # Replace space command \space
+    text = re.sub(r'\$\\([a-zA-Z]+)\$', r'\1', text)  # Replace other simple commands \command
     
-    # 处理更复杂的数学公式
-    text = re.sub(r'\$([^$]+)\$', lambda m: clean_latex_formula(m.group(1)), text)  # 处理$...$中的内容
-    # 处理双美元符号的数学环境
-    text = re.sub(r'\$\$([^$]+)\$\$', lambda m: clean_latex_formula(m.group(1)), text)  # 处理$$...$$中的内容
+    # Handle more complex math formulas
+    text = re.sub(r'\$([^$]+)\$', lambda m: clean_latex_formula(m.group(1)), text)  # Process content in $...$
+    # Handle math environments with double dollar signs
+    text = re.sub(r'\$\$([^$]+)\$\$', lambda m: clean_latex_formula(m.group(1)), text)  # Process content in $$...$$
     
-    # 替换常见的数学符号和特殊字符
+    # Replace common math symbols and special characters
     replacements = {
-        # 各种引号
+        # Various quotes
         '"': '"', '"': '"', ''': "'", ''': "'",
-        # 破折号和其他标点
+        # Dashes and other punctuation
         '—': '-', '–': '-', '…': '...',
-        # 常见数学符号 (可能出现在论文中)
+        # Common math symbols (may appear in papers)
         '×': 'x', '÷': '/', '≤': '<=', '≥': '>=', '≠': '!=', '≈': '~=',
-        # 货币符号
+        # Currency symbols
         '€': 'EUR', '£': 'GBP', '¥': 'JPY',
-        # 上下标和其他特殊字符
+        # Superscripts, subscripts and other special characters
         '²': '^2', '³': '^3', '±': '+/-',
-        # 可能导致问题的其他字符
-        '\u2028': ' ', '\u2029': ' ',  # 行分隔符和段落分隔符
-        # 处理可能的HTML标记字符
+        # Other characters that may cause problems
+        '\u2028': ' ', '\u2029': ' ',  # Line separator and paragraph separator
+        # Handle potential HTML markup characters
         '<': '&lt;',
         '>': '&gt;'
     }
@@ -171,35 +171,35 @@ def clean_text_for_api(text: str) -> str:
     for old, new in replacements.items():
         text = text.replace(old, new)
     
-    # 标准化换行符 (确保所有换行都是\n)
+    # Normalize line breaks (ensure all line breaks are \n)
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     
-    # 作为最后的措施，编码然后解码来去除任何剩余的问题字符
-    # 使用errors='ignore'忽略无法编码的字符
+    # As a last measure, encode and then decode to remove any remaining problem characters
+    # Use errors='ignore' to ignore characters that cannot be encoded
     text = text.encode('utf-8', errors='ignore').decode('utf-8')
     
     return text
 
-# --- 辅助函数：用于解析和清理 LLM 返回的 JSON --- 
+# --- Helper function: for parsing and cleaning JSON returned by LLM --- 
 def _parse_and_clean_llm_response(json_string: str, paper_id: str) -> Optional[Dict[str, Any]]:
-    """解析LLM返回的JSON字符串并进行数据清洗"""
+    """Parse JSON string returned by LLM and perform data cleaning"""
     try:
         analysis_data = json.loads(json_string)
         
-        # 数据清洗：确保所有字段都是字符串，并将列表/字典转为合适的字符串格式
+        # Data cleaning: ensure all fields are strings, and convert lists/dicts to appropriate string formats
         def clean_value(value):
             if isinstance(value, list):
                 clean_list = []
                 for item in value:
                     if isinstance(item, str):
                         item = item.strip()
-                        # 尝试添加项目符号，如果不是已经有的话
+                        # Try to add bullet points if not already present
                         if item and not re.match(r'^[-*•\d+\.\)]\s*', item):
                              item = "• " + item
                     clean_list.append(str(item))
                 return '\n'.join(clean_list)
             elif isinstance(value, dict):
-                # 处理嵌套字典
+                # Handle nested dictionaries
                 clean_dict = {}
                 for k, v in value.items():
                     clean_dict[k] = clean_value(v)
@@ -209,44 +209,43 @@ def _parse_and_clean_llm_response(json_string: str, paper_id: str) -> Optional[D
             else:
                 return str(value).strip()
         
-        # 清洗所有字段的值
+        # Clean values of all fields
         for key in analysis_data:
             analysis_data[key] = clean_value(analysis_data[key])
         
         return analysis_data
             
     except json.JSONDecodeError as e:
-        logger.error(f"[{paper_id}] JSON解析错误: {e}")
-        logger.debug(f"[{paper_id}] 原始字符串: {json_string}")
+        logger.error(f"[{paper_id}] JSON parsing error: {e}")
+        logger.debug(f"[{paper_id}] Original string: {json_string}")
         return None
     except Exception as e:
-        logger.error(f"[{paper_id}] 清理分析结果时出错: {e}")
+        logger.error(f"[{paper_id}] Error cleaning analysis results: {e}")
         return None
 
+"""
+Paper Analysis Service, responsible for coordinating PDF extraction, LLM calls, and result storage
+"""
 class PaperAnalysisService:
-    """
-    论文分析服务，负责协调PDF提取、LLM调用和结果保存
-    """
-    
     def __init__(self):
-        """初始化论文分析服务"""
+        """Initialize the paper analysis service"""
         self.is_analyzing = False
         self.current_task = None
-        self.batch_size = int(os.getenv("ANALYSIS_BATCH_SIZE", "5")) # 从环境变量获取批处理大小
+        self.batch_size = int(os.getenv("ANALYSIS_BATCH_SIZE", "5")) # Get batch size from environment variable
         # Max chars for LLM input (adjust per model, e.g., qwen-turbo 8k context -> ~24k chars)
         self.max_llm_input_chars = int(os.getenv("LLM_MAX_INPUT_CHARS", "50000"))
     
     async def _extract_text_from_pdf(self, paper_id: str, pdf_url: str, max_retries: int = 2) -> Optional[Tuple[str, int]]:
         """
-        从PDF URL提取文本内容，并计算字数。
+        Extract text content from a PDF URL and count words.
         
         Args:
-            paper_id: 论文ID
-            pdf_url: PDF的URL
-            max_retries: 下载重试次数，默认为2
+            paper_id: Paper ID
+            pdf_url: PDF URL
+            max_retries: Number of download retries, default is 2
             
         Returns:
-            一个元组 (提取的文本内容, 字数) 或 None (如果提取失败)
+            A tuple (extracted text content, word count) or None (if extraction fails)
         """
         start_time = time.time()
         retry_count = 0
@@ -254,165 +253,154 @@ class PaperAnalysisService:
         while retry_count <= max_retries:
             try:
                 if retry_count > 0:
-                    logger.info(f"尝试第 {retry_count} 次重试下载PDF for {paper_id}: {pdf_url}")
+                    logger.info(f"Attempting to download PDF for {paper_id} (attempt {retry_count} of {max_retries})")
                 else:
-                    logger.info(f"开始下载PDF for {paper_id}: {pdf_url}")
+                    logger.info(f"Starting to download PDF for {paper_id}")
                 
-                # 设置合理的超时，例如 60 秒
-                timeout = aiohttp.ClientTimeout(total=60)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
+                # Set a reasonable timeout, for example 60 seconds
+                async with aiohttp.ClientSession() as session:
                     async with session.get(pdf_url) as response:
                         if response.status != 200:
-                            logger.error(f"下载PDF失败 for {paper_id} ({pdf_url}), 状态码: {response.status}")
+                            logger.error(f"Download failed for {paper_id} ({pdf_url}), status code: {response.status}")
                             if retry_count < max_retries:
                                 retry_count += 1
-                                await asyncio.sleep(2)  # 等待2秒后重试
+                                await asyncio.sleep(2)  # Wait 2 seconds before retrying
                                 continue
                             return None
                         
                         pdf_content = await response.read()
-                        if not pdf_content or len(pdf_content) < 1000:  # 检查PDF内容是否过小
-                            logger.warning(f"PDF内容可能不完整 for {paper_id}, 大小仅 {len(pdf_content)} 字节")
+                        if not pdf_content or len(pdf_content) < 1000:  # Check if PDF content is too small
+                            logger.warning(f"PDF content may be incomplete for {paper_id}, size only {len(pdf_content)} bytes")
                             if retry_count < max_retries:
                                 retry_count += 1
-                                await asyncio.sleep(2)  # 等待2秒后重试
+                                await asyncio.sleep(2)  # Wait 2 seconds before retrying
                                 continue
                         
                         download_time = time.time() - start_time
-                        logger.info(f"PDF下载完成 for {paper_id}，大小: {len(pdf_content)/1024:.1f} KB, 耗时: {download_time:.2f} 秒")
+                        logger.info(f"PDF download completed for {paper_id}, size: {len(pdf_content)/1024:.1f} KB, time: {download_time:.2f} seconds")
                 
-                # 使用PyMuPDF提取文本
+                # Use PyMuPDF to extract text
                 extraction_start = time.time()
-                text = ""
-                word_count = 0
-                
                 try:
-                    # 确保PDF内容有效
+                    # Ensure PDF content is valid
                     if len(pdf_content) < 100:
-                        logger.error(f"PDF内容太小，可能不是有效的PDF for {paper_id}，大小: {len(pdf_content)} 字节")
+                        logger.error(f"PDF content too small, likely not a valid PDF for {paper_id}, size: {len(pdf_content)} bytes")
                         if retry_count < max_retries:
                             retry_count += 1
-                            await asyncio.sleep(2)  # 等待2秒后重试
+                            await asyncio.sleep(2)  # Wait 2 seconds before retrying
                             continue
-                        return None
                     
-                    # 增加内存使用提示和处理大型PDF的策略
-                    # PyMuPDF 通常内存效率较高，但超大文件仍可能出问题
+                    # Add memory usage hint and strategy for handling large PDFs
+                    # PyMuPDF is usually memory efficient, but very large files can still cause problems
                     with fitz.open(stream=pdf_content, filetype="pdf") as doc:
                         total_pages = len(doc)
-                        logger.info(f"PDF共 {total_pages} 页 for {paper_id}")
+                        logger.info(f"PDF has {total_pages} pages for {paper_id}")
                         
                         if total_pages == 0:
-                            logger.error(f"PDF没有页面 for {paper_id}")
+                            logger.error(f"PDF has no pages for {paper_id}")
                             if retry_count < max_retries:
                                 retry_count += 1
-                                await asyncio.sleep(2)  # 等待2秒后重试
+                                await asyncio.sleep(2)  # Wait 2 seconds before retrying
                                 continue
-                            return None
                         
-                        # 提取前 N 页 (例如 15 页)
-                        max_pages_to_extract = int(os.getenv("PDF_EXTRACT_MAX_PAGES", "15"))
-                        pages_to_process = min(max_pages_to_extract, total_pages)
-                        
+                        # Extract first N pages (for example 15 pages)
+                        pages_to_process = min(15, total_pages)  # Limit to 15 pages max
                         extracted_texts = []
+                        
                         for i in range(pages_to_process):
                             try:
                                 page = doc.load_page(i)
-                                page_text = page.get_text("text") 
-                                if page_text:
-                                    # 立即清理每个页面的空字节
-                                    page_text = page_text.replace('\x00', '')
+                                page_text = page.get_text("text")
+                                # Immediately clean each page's null bytes
+                                page_text = page_text.replace('\x00', '') 
+                                
+                                # Only add pages that have meaningful content
+                                if page_text and len(page_text.strip()) > 10:  
                                     extracted_texts.append(page_text.strip()) 
                             except Exception as page_error:
-                                 logger.warning(f"提取PDF页面 {i+1}/{total_pages} 出错 for {paper_id}: {page_error}")
-                                 continue # 跳过出错页面
+                                logger.warning(f"Error extracting PDF page {i+1}/{total_pages} for {paper_id}: {page_error}")
+                                continue # Skip problem pages
                                 
-                        text = "\n\n".join(extracted_texts) # 使用双换行符分隔页面
+                        # Join all pages with double newlines to separate
+                        text = "\n\n".join(extracted_texts)
                     
-                    # 检查是否成功提取到文本
+                    # Check if text was successfully extracted
                     if not text or len(text) < 100:
-                        logger.warning(f"提取的文本太短 for {paper_id}，长度: {len(text)} 字符")
+                        logger.warning(f"Extracted text too short for {paper_id}, length: {len(text)} characters")
                         if retry_count < max_retries:
                             retry_count += 1
-                            await asyncio.sleep(2)  # 等待2秒后重试
                             continue
                     
-                    # 最后再清理一次整个文本的空字节
-                    text = text.replace('\x00', '')
-                    
                     extraction_time = time.time() - extraction_start
-                    logger.info(f"PDF文本提取完成 for {paper_id}，提取了 {pages_to_process}/{total_pages} 页, 耗时: {extraction_time:.2f} 秒")
+                    logger.info(f"PDF text extraction completed for {paper_id}, extracted {pages_to_process}/{total_pages} pages, time: {extraction_time:.2f} seconds")
                     
-                    # 注意：文本清理 (clean_text_for_api) 现在由 llm_service 处理
-                    # 文本长度限制也移至 llm_service
+                    # Note: Text cleaning (clean_text_for_api) is now handled by llm_service
+                    # Text length limitation is also moved to llm_service
                     
                     total_time = time.time() - start_time
-                    logger.info(f"PDF处理完成 {paper_id} ({pdf_url}), 总耗时: {total_time:.2f} 秒, 提取文本长度: {len(text)} 字符")
+                    logger.info(f"PDF processing completed for {paper_id} ({pdf_url}), total time: {total_time:.2f} seconds, extracted text length: {len(text)} characters")
                     
                     # Calculate word count after joining pages
-                    if text:
-                         word_count = len(text.split()) 
+                    word_count = len(text.split())
                     
-                    return text, word_count
+                    return (text, word_count)
                     
                 except fitz.FileDataError as fe:
-                     logger.error(f"PyMuPDF无法打开或处理PDF数据 for {paper_id}: {fe}")
-                     if retry_count < max_retries:
-                         retry_count += 1
-                         await asyncio.sleep(2)  # 等待2秒后重试
-                         continue
-                     return None
-                except Exception as e_fitz:
-                    logger.error(f"PyMuPDF提取文本时出错 for {paper_id}: {e_fitz.__class__.__name__} - {e_fitz}")
+                    logger.error(f"PyMuPDF unable to open or process PDF data for {paper_id}: {fe}")
                     if retry_count < max_retries:
                         retry_count += 1
-                        await asyncio.sleep(2)  # 等待2秒后重试
+                        continue
+                    return None
+                except Exception as e_fitz:
+                    logger.error(f"PyMuPDF text extraction error for {paper_id}: {e_fitz.__class__.__name__} - {e_fitz}")
+                    if retry_count < max_retries:
+                        retry_count += 1
                         continue
                     return None
                     
             except asyncio.TimeoutError:
-                 logger.error(f"下载PDF超时 for {paper_id} ({pdf_url})")
+                 logger.error(f"Download PDF timeout for {paper_id} ({pdf_url})")
                  if retry_count < max_retries:
                      retry_count += 1
-                     await asyncio.sleep(2)  # 等待2秒后重试
+                     await asyncio.sleep(2)  # Wait 2 seconds before retrying
                      continue
                  return None
             except aiohttp.ClientError as e_http:
-                 logger.error(f"下载PDF时发生客户端错误 for {paper_id} ({pdf_url}): {e_http}")
+                 logger.error(f"Download PDF client error for {paper_id} ({pdf_url}): {e_http}")
                  if retry_count < max_retries:
                      retry_count += 1
-                     await asyncio.sleep(2)  # 等待2秒后重试
+                     await asyncio.sleep(2)  # Wait 2 seconds before retrying
                      continue
                  return None
             except Exception as e_main:
-                logger.error(f"提取PDF文本过程中发生意外错误 for {paper_id} ({pdf_url}): {e_main}")
+                logger.error(f"Unexpected error occurred during PDF text extraction for {paper_id} ({pdf_url}): {e_main}")
                 if retry_count < max_retries:
                     retry_count += 1
-                    await asyncio.sleep(2)  # 等待2秒后重试
+                    await asyncio.sleep(2)  # Wait 2 seconds before retrying
                     continue
                 return None
                 
-        # 如果所有重试都失败
-        logger.error(f"在 {max_retries} 次尝试后仍然无法提取PDF文本 for {paper_id}")
+        # If all retries failed
+        logger.error(f"Failed to extract PDF text for {paper_id} after {max_retries} attempts")
         return None
     
     async def _generate_llm_analysis_json(self, paper_id: str, text: str) -> Optional[str]:
         """
-        准备文本、构建prompt、调用通用LLM服务并获取原始JSON响应字符串。
+        Prepare text, build prompt, call the general LLM service and get the raw JSON response string.
         """
-        # 1. 清理文本 (使用本文件内的函数)
+        # 1. Clean text (using functions in this file)
         cleaned_text = clean_text_for_api(text)
         
-        # 2. 检查和截断文本长度
+        # 2. Check and truncate text length
         if not cleaned_text or len(cleaned_text) < 50:
-             logger.warning(f"论文 {paper_id} 清理后的文本过短或为空，无法进行分析。")
+             logger.warning(f"Paper {paper_id} cleaned text is too short or empty, cannot analyze.")
              return None
              
         if len(cleaned_text) > self.max_llm_input_chars:
-             logger.warning(f"论文 {paper_id} 清理后文本长度 {len(cleaned_text)} 超过限制 {self.max_llm_input_chars}，进行截断")
+             logger.warning(f"Paper {paper_id} cleaned text length {len(cleaned_text)} exceeds limit {self.max_llm_input_chars}, truncating")
              cleaned_text = cleaned_text[:self.max_llm_input_chars] + "... [Input Truncated]"
         
-        # 3. 构建 Prompt 和 Messages (现在在这里定义)
+        # 3. Build Prompt and Messages (defined here now)
         system_prompt = "You are an expert academic paper analyst, focused on providing objective, accurate, and strictly JSON-formatted paper analysis. All JSON fields must be simple strings, never nested objects or arrays."
         user_prompt = f"""Please analyze the following paper content and provide a structured analysis.
 
@@ -448,111 +436,111 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             {"role": "user", "content": user_prompt}
         ]
         
-        # 4. 调用通用的LLM服务
+        # 4. Call the general LLM service
         try:
-            logger.info(f"调用 LLM 服务进行分析: {paper_id} (文本长度: {len(cleaned_text)}) ")
+            logger.info(f"Calling LLM service for analysis: {paper_id} (text length: {len(cleaned_text)}) ")
             completion = await llm_service.get_chat_completion(
                 messages=messages,
-                # 使用 llm_service 中的默认模型、温度、max_tokens，但指定 JSON 输出
+                # Use default model, temperature, max_tokens from llm_service, but specify JSON output
                 response_format={"type": "json_object"} 
             )
             
-            # 5. 处理响应
+            # 5. Process the response
             if completion and completion.choices and completion.choices[0].message:
                 response_content = completion.choices[0].message.content
                 if response_content:
-                    logger.info(f"成功从 LLM 获取到分析响应 for {paper_id}")
+                    logger.info(f"Successfully received analysis response from LLM for {paper_id}")
                     return response_content
                 else:
-                    logger.error(f"LLM 响应内容为空 for {paper_id}")
+                    logger.error(f"LLM response content is empty for {paper_id}")
                     return None
             else:
-                logger.error(f"无法从LLM响应中提取有效内容 for {paper_id}")
+                logger.error(f"Unable to extract valid content from LLM response for {paper_id}")
                 if completion:
-                     logger.debug(f"原始 LLM 响应对象 for {paper_id}: {completion.model_dump_json()}")
+                     logger.debug(f"Raw LLM response object for {paper_id}: {completion.model_dump_json()}")
                 return None
                 
         except Exception as e:
              # Handle potential errors during the call or response processing within this service
-             logger.error(f"在调用LLM或处理其响应时出错 for {paper_id}: {e.__class__.__name__} - {e}")
+             logger.error(f"Error when calling LLM or processing its response for {paper_id}: {e.__class__.__name__} - {e}")
              return None
 
     async def analyze_paper(self, paper_id: str, timeout_seconds: int = 120) -> Optional[PaperAnalysis]:
         """
-        分析单篇论文：获取信息 -> 提取文本 -> 调用LLM -> 解析结果 -> 保存分析
+        Analyze a single paper: Get information -> Extract text -> Call LLM -> Parse results -> Save analysis
         
         Args:
-            paper_id: 论文ID
-            timeout_seconds: 单篇论文分析的超时时间（秒），默认2分钟
+            paper_id: Paper ID
+            timeout_seconds: Timeout for analyzing a single paper (seconds), default 2 minutes
         """
-        logger.info(f"[{paper_id}] 开始分析论文")
+        logger.info(f"[{paper_id}] Starting paper analysis")
         paper_start_time = time.time()
         
-        # 设置任务超时控制
+        # Set task timeout control
         try:
             return await asyncio.wait_for(
                 self._analyze_paper_internal(paper_id),
                 timeout=timeout_seconds
             )
         except asyncio.TimeoutError:
-            logger.error(f"[{paper_id}] 分析超时，超过了{timeout_seconds}秒的限制")
+            logger.error(f"[{paper_id}] Analysis timeout, exceeded the {timeout_seconds} second limit")
             return None
         except Exception as e:
-            logger.error(f"[{paper_id}] 分析过程中发生错误: {e}", exc_info=True)
+            logger.error(f"[{paper_id}] Error during analysis process: {e}", exc_info=True)
             return None
         finally:
             paper_duration = time.time() - paper_start_time
-            logger.info(f"[{paper_id}] 分析任务结束，总耗时: {paper_duration:.2f}秒")
+            logger.info(f"[{paper_id}] Analysis task completed, total time: {paper_duration:.2f} seconds")
     
     async def _analyze_paper_internal(self, paper_id: str) -> Optional[PaperAnalysis]:
-        """内部方法，实际执行论文分析逻辑"""
-        # 1. 检查分析是否已存在
+        """Internal method that actually executes the paper analysis logic"""
+        # 1. Check if analysis already exists
         existing_analysis = await db_service.get_paper_analysis(paper_id)
         if existing_analysis:
-            logger.info(f"[{paper_id}] 分析已存在，跳过")
+            logger.info(f"[{paper_id}] Analysis already exists, skipping")
             return existing_analysis
         
-        # 2. 获取论文信息 (需要 PDF URL)
+        # 2. Get paper information (need PDF URL)
         paper = await db_service.get_paper_by_id(paper_id)
         if not paper:
-            logger.error(f"[{paper_id}] 未找到论文，无法分析")
+            logger.error(f"[{paper_id}] Paper not found, cannot analyze")
             return None
         if not paper.pdf_url:
-             logger.error(f"[{paper_id}] 缺少 PDF URL，无法分析")
+             logger.error(f"[{paper_id}] Missing PDF URL, cannot analyze")
              return None
 
-        # 3. 提取 PDF 文本 和 字数
-        logger.info(f"[{paper_id}] 开始提取 PDF 文本: {paper.pdf_url}")
+        # 3. Extract PDF text and word count
+        logger.info(f"[{paper_id}] Starting PDF text extraction: {paper.pdf_url}")
         extraction_result = await self._extract_text_from_pdf(paper_id, paper.pdf_url)
         
         if extraction_result is None:
-            logger.error(f"[{paper_id}] 提取 PDF 文本失败")
+            logger.error(f"[{paper_id}] Failed to extract PDF text")
             return None
         
         extracted_text, word_count = extraction_result # Unpack the tuple
-        logger.info(f"[{paper_id}] PDF 文本提取完成，长度: {len(extracted_text)} 字符, 字数: {word_count}")
+        logger.info(f"[{paper_id}] PDF text extraction completed, length: {len(extracted_text)} characters, word count: {word_count}")
         
-        # 已移除: 不再保存文本到数据库
+        # Removed: No longer saving text to database
         if not extracted_text:
-            logger.warning(f"[{paper_id}] 提取的文本为空，中止分析")
+            logger.warning(f"[{paper_id}] Extracted text is empty, stopping analysis")
             return None
         
-        # 5. 调用 LLM 服务生成分析 JSON 字符串 
-        logger.info(f"[{paper_id}] 开始调用 LLM 服务生成分析...")
+        # 5. Call LLM service to generate analysis JSON string
+        logger.info(f"[{paper_id}] Starting LLM service call to generate analysis...")
         analysis_json_string = await self._generate_llm_analysis_json(paper_id, extracted_text)
         if not analysis_json_string:
-             logger.error(f"[{paper_id}] LLM 未能生成分析 JSON")
+             logger.error(f"[{paper_id}] LLM failed to generate analysis JSON")
              return None
              
-        # 6. 解析和清理 LLM 返回的 JSON 
-        logger.info(f"[{paper_id}] 开始解析和清理 LLM 响应...")
+        # 6. Parse and clean LLM returned JSON
+        logger.info(f"[{paper_id}] Starting to parse and clean LLM response...")
         cleaned_analysis_data = _parse_and_clean_llm_response(analysis_json_string, paper_id)
         if not cleaned_analysis_data:
-             logger.error(f"[{paper_id}] 解析或清理 LLM 分析结果失败")
+             logger.error(f"[{paper_id}] Failed to parse or clean LLM analysis results")
              return None
              
-        # 7. 创建 PaperAnalysis 对象
-        logger.info(f"[{paper_id}] 准备创建分析对象...")
+        # 7. Create PaperAnalysis object
+        logger.info(f"[{paper_id}] Preparing to create analysis object...")
         try:
             now = datetime.now()
             new_analysis = PaperAnalysis(
@@ -568,30 +556,30 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
                 updated_at=now
             )
         except Exception as e:
-             logger.error(f"[{paper_id}] 创建 PaperAnalysis 对象失败: {e}", exc_info=True)
+             logger.error(f"[{paper_id}] Failed to create PaperAnalysis object: {e}", exc_info=True)
              return None
 
-        # 8. 保存分析结果到数据库 
-        logger.info(f"[{paper_id}] 尝试保存最终分析结果到数据库...")
+        # 8. Save analysis results to database
+        logger.info(f"[{paper_id}] Attempting to save final analysis results to database...")
         save_analysis_success = await db_service.save_paper_analysis(new_analysis)
         if save_analysis_success:
-            logger.info(f"[{paper_id}] 成功保存分析结果到数据库")
+            logger.info(f"[{paper_id}] Successfully saved analysis results to database")
             return new_analysis
         else:
-            logger.error(f"[{paper_id}] 保存分析结果到数据库失败")
+            logger.error(f"[{paper_id}] Failed to save analysis results to database")
             return None
             
     async def analyze_pending_papers(self, process_all: bool = False, max_papers: int = None, max_concurrency: int = 2) -> Dict[str, Any]:
         """
-        分析一批待处理的论文
+        Analyze a batch of pending papers
         
         Args:
-            process_all: 是否处理所有待分析论文，而不受批量大小限制
-            max_papers: 最大处理论文数量限制（如果设置）
-            max_concurrency: 最大并发处理论文数量，默认为2（防止API请求过多被限流）
+            process_all: Whether to process all pending papers without batch size limit
+            max_papers: Maximum number of papers to process (if set)
+            max_concurrency: Maximum number of concurrent paper analyses
         """
         if self.is_analyzing:
-            logger.info("分析任务已在运行中")
+            logger.info("Analysis task is already running")
             return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
 
         self.is_analyzing = True
@@ -602,43 +590,43 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
         total_processed = 0
         
         try:
-            # 设置获取论文的批次大小和最大数量限制
+            # Set batch size and maximum number of papers to process
             batch_limit = None if process_all else self.batch_size
             if max_papers is not None:
                 batch_limit = min(max_papers, batch_limit) if batch_limit else max_papers
                 
-            logger.info(f"开始分析任务: {'处理所有待分析论文' if process_all else f'批量大小={batch_limit}'}, 最大并发数: {max_concurrency}")
+            logger.info(f"Starting analysis task: {'Processing all pending papers' if process_all else f'Batch size={batch_limit}'}, Maximum concurrency: {max_concurrency}")
             
-            # 创建信号量以限制并发
+            # Create semaphore to limit concurrency
             semaphore = asyncio.Semaphore(max_concurrency)
             
-            # 包装分析函数，使用信号量限制并发
+            # Wrap analysis function, use semaphore to limit concurrency
             async def analyze_with_semaphore(paper_id):
                 async with semaphore:
-                    logger.info(f"获取信号量开始分析论文: {paper_id}")
+                    logger.info(f"Getting semaphore to analyze paper: {paper_id}")
                     return await self.analyze_paper(paper_id, timeout_seconds=120)
             
-            # 第一次获取待分析论文
+            # First get pending papers to analyze
             pending_papers = await db_service.get_papers_without_analysis(limit=batch_limit)
             
             if not pending_papers:
-                logger.info("没有需要分析的论文")
+                logger.info("No papers found needing analysis")
                 return {"status": "no_pending", "message": "No papers found needing analysis.", "processed": 0, "failed": 0}
             
             while pending_papers:
                 batch_size = len(pending_papers)
                 total_pending += batch_size
-                logger.info(f"开始处理新批次: {batch_size} 篇待分析论文 (并发限制: {max_concurrency})")
+                logger.info(f"Starting new batch: {batch_size} papers to analyze (concurrency limit: {max_concurrency})")
                 
                 analysis_tasks = []
                 for paper in pending_papers:
-                    # 使用信号量包装的分析任务
+                    # Use semaphore-wrapped analysis task
                     analysis_tasks.append(analyze_with_semaphore(paper.paper_id))
                 
-                # 并发执行分析任务（但受信号量限制）
+                # Concurrent execution of analysis tasks (but limited by semaphore)
                 results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
                 
-                # 处理结果
+                # Process results
                 batch_processed = 0
                 batch_failed = 0
                 for result in results:
@@ -646,21 +634,21 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
                         batch_processed += 1
                         processed_count += 1
                     elif isinstance(result, Exception):
-                        logger.error(f"批量分析中遇到错误: {result}")
+                        logger.error(f"Error encountered in batch analysis: {result}")
                         batch_failed += 1
                         failed_count += 1
-                    else: # 分析失败返回 None
+                    else: # Analysis failed returns None
                         batch_failed += 1
                         failed_count += 1
                 
                 total_processed += batch_size
-                logger.info(f"当前批次完成. 成功: {batch_processed}, 失败: {batch_failed}")
+                logger.info(f"Current batch completed. Success: {batch_processed}, Failed: {batch_failed}")
                 
-                # 如果不处理所有论文或已达到最大数量，则退出循环
+                # If not processing all papers or reached maximum number, exit loop
                 if not process_all or (max_papers is not None and total_processed >= max_papers):
                     break
                     
-                # 获取下一批待分析论文
+                # Get next batch of papers to analyze
                 if process_all:
                     next_batch_limit = max_papers - total_processed if max_papers is not None else None
                     if next_batch_limit is not None and next_batch_limit <= 0:
@@ -670,7 +658,7 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
                     break
             
             duration = time.time() - start_time
-            logger.info(f"分析任务完成. 总耗时: {duration:.2f} 秒. 总计论文: {total_pending}, 成功: {processed_count}, 失败: {failed_count}")
+            logger.info(f"Analysis task completed. Total time: {duration:.2f} seconds. Total papers: {total_pending}, Success: {processed_count}, Failed: {failed_count}")
             
             return {
                 "status": "completed", 
@@ -682,7 +670,7 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             }
             
         except Exception as e:
-            logger.error(f"分析任务失败: {e}", exc_info=True)
+            logger.error(f"Analysis task failed: {e}", exc_info=True)
             return {"status": "error", "message": str(e), "processed": processed_count, "failed": failed_count}
         finally:
             self.is_analyzing = False
@@ -690,22 +678,22 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             
     async def start_analysis_task(self, process_all: bool = False, max_papers: int = None, max_concurrency: int = 2) -> Dict[str, Any]:
         """
-        异步启动批量论文分析任务
+        Asynchronously start batch paper analysis task
         
         Args:
-            process_all: 是否处理所有待分析论文，而不受批量大小限制
-            max_papers: 最大处理论文数量限制（如果设置）
-            max_concurrency: 最大并发处理论文数量，默认为2（防止API请求过多被限流）
+            process_all: Whether to process all pending papers without batch size limit
+            max_papers: Maximum number of papers to process (if set)
+            max_concurrency: Maximum number of concurrent paper analyses
         """
         if self.is_analyzing:
-            logger.info("分析任务已在运行中，无法启动新的任务")
+            logger.info("Analysis task is already running, cannot start new task")
             return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
 
-        logger.info(f"准备启动后台批量分析任务 (处理所有={process_all}, 最大数量={max_papers or '无限制'}, 并发数={max_concurrency})")
-        self.is_analyzing = True # 标记任务开始
+        logger.info(f"Preparing to start background batch analysis task (process all={process_all}, maximum number={max_papers or 'no limit'}, concurrency={max_concurrency})")
+        self.is_analyzing = True # Mark task start
         
-        # 使用 asyncio.create_task 在后台运行 analyze_pending_papers
-        # 将任务对象保存起来，如果需要的话可以用于查询状态或取消
+        # Use asyncio.create_task to run analyze_pending_papers in the background
+        # Save task object if needed for querying status or canceling
         self.current_task = asyncio.create_task(
             self.analyze_pending_papers(
                 process_all=process_all, 
@@ -715,7 +703,7 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             name=f"paper_analysis_task_{datetime.now():%Y%m%d_%H%M%S}"
         )
         
-        logger.info(f"后台批量分析任务已启动: {self.current_task.get_name()}")
+        logger.info(f"Background batch analysis task started: {self.current_task.get_name()}")
         
         return {
             "status": "started", 
@@ -723,5 +711,5 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
             "task_id": str(self.current_task.get_name())
         }
 
-# 创建全局服务实例
+# Create global service instance
 paper_analysis_service = PaperAnalysisService() 

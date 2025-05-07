@@ -20,10 +20,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # 使用重命名而不是删除和创建，保留数据
+    # Use renaming instead of deleting and creating, to preserve data
     op.rename_table('user_preferences', 'user')
     
-    # 重命名索引 - 在PostgreSQL中，需要手动删除和重新创建索引
+    # Rename indexes - in PostgreSQL, indexes need to be manually dropped and recreated
     op.drop_index('ix_user_preferences_ip_prefix', table_name='user')
     op.drop_index('ix_user_preferences_user_id', table_name='user')
     op.create_index(op.f('ix_user_ip_prefix'), 'user', ['ip_prefix'], unique=False)
@@ -32,13 +32,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # 在回滚时，将表再次重命名回原名
-    # 重命名索引
+    # When rolling back, rename the table back to its original name
+    # Rename indexes
     op.drop_index(op.f('ix_user_ip_prefix'), table_name='user')
     op.drop_index(op.f('ix_user_user_id'), table_name='user')
     
     op.rename_table('user', 'user_preferences')
     
-    # 重新创建原索引
+    # Recreate original indexes
     op.create_index('ix_user_preferences_ip_prefix', 'user_preferences', ['ip_prefix'], unique=False)
     op.create_index('ix_user_preferences_user_id', 'user_preferences', ['user_id'], unique=False)

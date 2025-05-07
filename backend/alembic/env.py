@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from alembic import context
 
-# 导入我们的数据库模型和Base类
+# Import our database models and Base class
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.models.db_models import Base
@@ -19,7 +19,7 @@ from app.db.database import DATABASE_URL
 # access to the values within the .ini file in use.
 config = context.config
 
-# 设置sqlalchemy.url，优先使用环境变量中的配置
+# Set sqlalchemy.url, prioritizing configuration from environment variables
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 # Interpret the config file for Python logging.
@@ -72,7 +72,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode using a direct database connection."""
-    # 使用同步连接而不是异步
+    # Use synchronous connection instead of asynchronous
     connectable = engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",

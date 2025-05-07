@@ -21,7 +21,7 @@ async def get_papers(
     offset: int = Query(0, ge=0)
 ):
     """
-    获取最近的论文（带分页）
+    Get recent papers (with pagination)
     """
     papers = await db_service.get_recent_papers(limit=limit, offset=offset)
     return papers
@@ -30,7 +30,7 @@ async def get_papers(
 @router.get("/count")
 async def count_papers():
     """
-    获取数据库中的论文总数
+    Get the total number of papers in the database
     """
     count = await db_service.count_papers()
     return {"count": count}
@@ -39,16 +39,16 @@ async def count_papers():
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper(paper_id: str):
     """
-    通过ID获取论文
+    Get paper by ID
     """
     paper = await db_service.get_paper_by_id(paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     
-    # 获取论文分析结果
+    # Get paper analysis results
     analysis = await db_service.get_paper_analysis(paper_id)
     
-    # 转换为响应模型
+    # Convert to response model
     response = PaperResponse(
         paper_id=paper.paper_id,
         title=paper.title,
@@ -77,21 +77,21 @@ async def get_paper(paper_id: str):
 @router.post("/{paper_id}/analyze")
 async def analyze_paper(paper_id: str):
     """
-    分析指定论文的PDF内容
+    Analyze the PDF content of the specified paper
     """
-    # 检查论文是否存在
+    # Check if paper exists
     paper = await db_service.get_paper_by_id(paper_id)
     if not paper:
-        raise HTTPException(status_code=404, detail="论文不存在")
+        raise HTTPException(status_code=404, detail="Paper not found")
     
-    # 分析论文
+    # Analyze paper
     analysis = await paper_analysis_service.analyze_paper(paper_id)
     if not analysis:
-        raise HTTPException(status_code=500, detail="分析论文失败")
+        raise HTTPException(status_code=500, detail="Failed to analyze paper")
     
     return {
         "status": "success",
-        "message": "论文分析完成",
+        "message": "Paper analysis completed",
         "paper_id": paper_id,
         "timestamp": analysis.updated_at.isoformat()
     }
@@ -99,17 +99,17 @@ async def analyze_paper(paper_id: str):
 @router.get("/{paper_id}/analysis", response_model=PaperAnalysisResponse)
 async def get_paper_analysis(paper_id: str):
     """
-    获取论文的分析结果
+    Get the analysis results of a paper
     """
-    # 检查论文是否存在
+    # Check if paper exists
     paper = await db_service.get_paper_by_id(paper_id)
     if not paper:
-        raise HTTPException(status_code=404, detail="论文不存在")
+        raise HTTPException(status_code=404, detail="Paper not found")
     
-    # 获取分析结果
+    # Get analysis results
     analysis = await db_service.get_paper_analysis(paper_id)
     if not analysis:
-        raise HTTPException(status_code=404, detail="未找到该论文的分析结果")
+        raise HTTPException(status_code=404, detail="No analysis results found for this paper")
     
     return PaperAnalysisResponse(
         paper_id=analysis.paper_id,
@@ -127,30 +127,30 @@ async def get_paper_analysis(paper_id: str):
 @router.post("/analyze-batch", status_code=202)
 async def analyze_batch_papers():
     """
-    启动批量论文分析任务
+    Start batch paper analysis task
     """
     result = await paper_analysis_service.start_analysis_task()
     return result
 
 @router.get("/recommend/")
 async def get_recommended_papers(
-    limit: int = Query(5, description="推荐论文数量"),
-    offset: int = Query(0, description="推荐论文偏移量"),
-    x_user_id: Optional[str] = Header(None, description="用户唯一标识")
+    limit: int = Query(5, description="Number of recommended papers"),
+    offset: int = Query(0, description="Recommended papers offset"),
+    x_user_id: Optional[str] = Header(None, description="User unique identifier")
 ):
     """
-    获取基于用户画像的推荐论文，或为新用户提供热门分类的随机论文
+    Get recommended papers based on user profile, or provide random papers from popular categories for new users
     """
     recommended_papers = []
     
     if x_user_id:
-        # 尝试获取个性化推荐
+        # Try to get personalized recommendations
         recommended_papers = await recommendation_service.recommend_papers(user_id=x_user_id, limit=limit, offset=offset)
         
-    # 如果没有个性化推荐结果 (可能是新用户或历史不足)
+    # If no personalized recommendation results (possibly new user or insufficient history)
     if not recommended_papers:
-        logger.info(f"用户 {x_user_id or '匿名'} 没有个性化推荐，提供热门分类随机推荐")
-        popular_categories = ["cs.CV", "cs.AI", "cs.LG", "cs.CL"]  # 定义热门分类
+        logger.info(f"User {x_user_id or 'anonymous'} has no personalized recommendations, providing random recommendations from popular categories")
+        popular_categories = ["cs.CV", "cs.AI", "cs.LG", "cs.CL"]  # Define popular categories
         recommended_papers = await db_service.get_random_papers_by_category(categories=popular_categories, limit=limit, offset=offset)
         
     return recommended_papers 

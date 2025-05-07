@@ -32,42 +32,42 @@ export default defineComponent({
   setup() {
     const router = useRouter();
     
-    // 导航离开前保存滚动位置
+    // Save scroll position before navigation
     const saveScrollPositionBeforeLeave = (to, from) => {
-      // 保存当前页面的滚动位置
+      // Save current page scroll position
       sessionStorage.setItem(
         `scrollPos-${from.fullPath}`,
         window.scrollY.toString()
       );
     };
 
-    // 更新用户访问记录
+    // Update user visit records
     const updateUserVisit = async () => {
       try {
-        // 确保用户ID已初始化
+        // Ensure user ID is initialized
         const userId = userService.getUserId();
-        // 调用API保存用户访问记录（空对象，因为服务器会使用请求头中的信息）
+        // Call API to save user visit records (empty object, as server will use info from request headers)
         await api.saveUserPreferences({});
       } catch (error) {
-        console.error('更新用户访问记录失败:', error);
+        console.error('Failed to update user visit records:', error);
       }
     };
     
     onMounted(() => {
-      // 添加全局导航钩子
+      // Add global navigation hook
       router.beforeEach(saveScrollPositionBeforeLeave);
       
-      // 更新用户访问记录
+      // Update user visit records
       updateUserVisit();
 
-      // 添加路由监听器，在每次路由变化时更新用户访问记录
+      // Add route listener to update user visit records on each route change
       router.afterEach(() => {
         updateUserVisit();
       });
     });
     
     onUnmounted(() => {
-      // 清理
+      // Cleanup
       router.beforeEach(() => {});
     });
     

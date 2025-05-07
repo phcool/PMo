@@ -14,13 +14,13 @@ from app.services.paper_analysis_service import paper_analysis_service
 
 logger = logging.getLogger(__name__)
 
-# 服务单例
+# Service singleton
 db_service = DBService()
 vector_search_service = VectorSearchService()
 
 class SchedulerService:
     """
-    论文定时获取服务，负责后台周期性获取新论文
+    Paper scheduling service, responsible for periodically fetching new papers in the background
     """
     
     def __init__(self):
@@ -29,102 +29,102 @@ class SchedulerService:
         self.last_run_time = None
         self.last_analysis_time = None
         
-        # 扩展默认类别，包含所有计算机科学和深度学习相关方向
+        # Extended default categories, including all computer science and deep learning related fields
         self.default_categories = [
-            # 核心机器学习和深度学习类别
-            "cs.LG",   # 机器学习
-            "cs.AI",   # 人工智能
-            "cs.CV",   # 计算机视觉
-            "cs.CL",   # 计算语言学/自然语言处理
-            "cs.NE",   # 神经和进化计算
-            "stat.ML", # 统计机器学习
+            # Core machine learning and deep learning categories
+            "cs.LG",   # Machine Learning
+            "cs.AI",   # Artificial Intelligence
+            "cs.CV",   # Computer Vision
+            "cs.CL",   # Computational Linguistics/Natural Language Processing
+            "cs.NE",   # Neural and Evolutionary Computing
+            "stat.ML", # Statistical Machine Learning
             
-            # 相关应用领域
-            "cs.RO",   # 机器人学
-            "cs.IR",   # 信息检索
-            "cs.MM",   # 多媒体
-            "cs.SD",   # 声音
-            "cs.HC",   # 人机交互
+            # Related application domains
+            "cs.RO",   # Robotics
+            "cs.IR",   # Information Retrieval
+            "cs.MM",   # Multimedia
+            "cs.SD",   # Sound
+            "cs.HC",   # Human-Computer Interaction
             
-            # 系统与算法
-            "cs.DC",   # 分布式计算
-            "cs.DS",   # 数据结构与算法
-            "cs.DB",   # 数据库
-            "cs.PL",   # 编程语言
-            "cs.NA",   # 数值分析
-            "cs.AR",   # 硬件架构
+            # Systems and Algorithms
+            "cs.DC",   # Distributed Computing
+            "cs.DS",   # Data Structures and Algorithms
+            "cs.DB",   # Databases
+            "cs.PL",   # Programming Languages
+            "cs.NA",   # Numerical Analysis
+            "cs.AR",   # Hardware Architecture
             
-            # 其他相关领域
-            "cs.GT",   # 博弈论
-            "cs.CC",   # 计算复杂性
-            "cs.NI",   # 网络与互联网架构
-            "cs.CR",   # 密码学与安全
-            "cs.SE"    # 软件工程
+            # Other related fields
+            "cs.GT",   # Game Theory
+            "cs.CC",   # Computational Complexity
+            "cs.NI",   # Networking and Internet Architecture
+            "cs.CR",   # Cryptography and Security
+            "cs.SE"    # Software Engineering
         ]
         
-        self.default_max_results = 100  # 增加默认获取数量
+        self.default_max_results = 100  # Increased default fetch count
         
-        # 从环境变量获取配置
-        self.cron_schedule = os.getenv("PAPER_FETCH_SCHEDULE", "0 */8 * * *")  # 默认每8小时
-        self.analysis_schedule = os.getenv("PAPER_ANALYSIS_SCHEDULE", "30 */8 * * *")  # 默认每8小时，但在获取后30分钟执行
+        # Get configuration from environment variables
+        self.cron_schedule = os.getenv("PAPER_FETCH_SCHEDULE", "0 */8 * * *")  # Default every 8 hours
+        self.analysis_schedule = os.getenv("PAPER_ANALYSIS_SCHEDULE", "30 */8 * * *")  # Default every 8 hours, but 30 minutes after fetching
         
     async def fetch_papers_task(self):
-        """定时获取论文的任务"""
+        """Scheduled task for fetching papers"""
         try:
-            logger.info("开始定时获取论文任务")
+            logger.info("Starting scheduled paper fetch task")
             self.last_run_time = datetime.now()
             
-            # 从arXiv获取论文
+            # Fetch papers from arXiv
             papers = await ArxivService.fetch_recent_papers(
                 categories=self.default_categories,
                 max_results=self.default_max_results
             )
             
             if not papers:
-                logger.info("没有找到新论文")
+                logger.info("No new papers found")
                 return
                 
-            # 添加到数据库
+            # Add to database
             added_ids = await db_service.add_papers(papers)
             
-            # 添加到向量搜索索引
+            # Add to vector search index
             if added_ids:
                 papers_to_add = [p for p in papers if p.paper_id in added_ids]
                 await vector_search_service.add_papers(papers_to_add)
                 
-            logger.info(f"定时任务获取了 {len(papers)} 篇论文，添加了 {len(added_ids)} 篇新论文")
+            logger.info(f"Scheduled task fetched {len(papers)} papers, added {len(added_ids)} new papers")
             
-            # 注意：此处不再自动启动分析任务
-            # 分析任务由独立的定时任务处理
+            # Note: No longer automatically starting analysis task here
+            # Analysis task is handled by a separate scheduled job
         
         except Exception as e:
-            logger.error(f"定时获取论文任务失败: {e}")
+            logger.error(f"Scheduled paper fetch task failed: {e}")
     
     async def analyze_papers_task(self):
-        """定时分析论文的任务"""
+        """Scheduled task for analyzing papers"""
         try:
-            logger.info("开始定时分析论文任务")
+            logger.info("Starting scheduled paper analysis task")
             self.last_analysis_time = datetime.now()
             
-            # 如果正在分析，则跳过
+            # Skip if already analyzing
             if paper_analysis_service.is_analyzing:
-                logger.info("已有分析任务正在进行中，跳过本次执行")
+                logger.info("Analysis task is already in progress, skipping this execution")
                 return
                 
-            # 启动新的分析任务
+            # Start new analysis task
             analysis_result = await paper_analysis_service.start_analysis_task()
-            logger.info(f"启动论文分析任务: {analysis_result}")
+            logger.info(f"Started paper analysis task: {analysis_result}")
             
         except Exception as e:
-            logger.error(f"定时分析论文任务失败: {e}")
+            logger.error(f"Scheduled paper analysis task failed: {e}")
     
     def start(self):
-        """启动定时任务"""
+        """Start scheduled tasks"""
         if self.is_running:
-            logger.warning("定时任务已经在运行中")
+            logger.warning("Scheduled tasks are already running")
             return
             
-        # 添加获取论文的定时任务
+        # Add paper fetch scheduled task
         self.scheduler.add_job(
             self.fetch_papers_task,
             CronTrigger.from_crontab(self.cron_schedule),
@@ -132,7 +132,7 @@ class SchedulerService:
             replace_existing=True
         )
         
-        # 添加分析论文的定时任务
+        # Add paper analysis scheduled task
         self.scheduler.add_job(
             self.analyze_papers_task,
             CronTrigger.from_crontab(self.analysis_schedule),
@@ -142,99 +142,99 @@ class SchedulerService:
         
         self.scheduler.start()
         self.is_running = True
-        logger.info(f"论文定时服务已启动，获取计划: {self.cron_schedule}, 分析计划: {self.analysis_schedule}")
+        logger.info(f"Paper scheduling service started, fetch schedule: {self.cron_schedule}, analysis schedule: {self.analysis_schedule}")
     
     def stop(self):
-        """停止定时任务"""
+        """Stop scheduled tasks"""
         if not self.is_running:
             return
             
         self.scheduler.shutdown()
         self.is_running = False
-        logger.info("论文定时服务已停止")
+        logger.info("Paper scheduling service stopped")
     
     async def manual_fetch(self, categories: Optional[List[str]] = None, max_results: int = 50) -> dict:
         """
-        手动触发获取论文
+        Manually trigger paper fetching
         
         Args:
-            categories: 要获取的论文类别列表
-            max_results: 最大获取数量
+            categories: List of paper categories to fetch
+            max_results: Maximum number of papers to fetch
             
         Returns:
-            包含获取结果的字典
+            Dictionary containing the fetch results
         """
         if categories is None:
             categories = self.default_categories
             
         try:
-            # 获取论文
+            # Fetch papers
             papers = await ArxivService.fetch_recent_papers(
                 categories=categories,
                 max_results=max_results
             )
             
             if not papers:
-                return {"status": "success", "message": "没有找到新论文", "count": 0}
+                return {"status": "success", "message": "No new papers found", "count": 0}
                 
-            # 添加到数据库
+            # Add to database
             added_ids = await db_service.add_papers(papers)
             
-            # 添加到向量搜索索引
+            # Add to vector search index
             if added_ids:
                 papers_to_add = [p for p in papers if p.paper_id in added_ids]
                 await vector_search_service.add_papers(papers_to_add)
                 
             result = {
                 "status": "success",
-                "message": f"获取了 {len(papers)} 篇论文，添加了 {len(added_ids)} 篇新论文",
+                "message": f"Fetched {len(papers)} papers, added {len(added_ids)} new papers",
                 "count": len(added_ids),
                 "timestamp": datetime.now().isoformat()
             }
             
-            # 注意：此处不再自动启动分析任务
-            # 分析任务由独立的定时任务或手动触发处理
+            # Note: No longer automatically starting analysis task here
+            # Analysis task is handled by a separate scheduled job or manual trigger
             
             return result
             
         except Exception as e:
-            logger.error(f"手动获取论文失败: {e}")
+            logger.error(f"Manual paper fetch failed: {e}")
             return {
                 "status": "error",
-                "message": f"获取论文失败: {str(e)}",
+                "message": f"Paper fetch failed: {str(e)}",
                 "count": 0,
                 "timestamp": datetime.now().isoformat()
             }
     
     async def manual_analyze(self) -> dict:
         """
-        手动触发论文分析
+        Manually trigger paper analysis
         
         Returns:
-            包含分析结果的字典
+            Dictionary containing the analysis results
         """
         try:
             if paper_analysis_service.is_analyzing:
                 return {
                     "status": "in_progress",
-                    "message": "已有分析任务正在进行中"
+                    "message": "An analysis task is already in progress"
                 }
                 
-            # 启动分析任务
+            # Start analysis task
             result = await paper_analysis_service.start_analysis_task()
             return result
             
         except Exception as e:
-            logger.error(f"手动启动论文分析失败: {e}")
+            logger.error(f"Manual paper analysis start failed: {e}")
             return {
                 "status": "error",
-                "message": f"启动论文分析失败: {str(e)}",
+                "message": f"Failed to start paper analysis: {str(e)}",
                 "timestamp": datetime.now().isoformat()
             }
     
     @property
     def status(self) -> dict:
-        """获取定时任务状态"""
+        """Get scheduled task status"""
         return {
             "is_running": self.is_running,
             "last_fetch_time": self.last_run_time.isoformat() if self.last_run_time else None,
@@ -244,5 +244,5 @@ class SchedulerService:
             "default_categories": self.default_categories
         }
 
-# 创建全局单例
+# Create global singleton
 scheduler_service = SchedulerService() 

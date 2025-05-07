@@ -14,16 +14,16 @@ from app.services.llm_service import llm_service # Import llm_service
 logger = logging.getLogger(__name__)
 
 class VectorSearchService:
-    """使用FAISS和外部嵌入API进行向量搜索的服务"""
+    """Vector search service using FAISS and external embedding API"""
     
     def __init__(self):
         """
-        初始化向量搜索服务
+        Initialize vector search service
         """
-        # 获取嵌入维度和服务相关配置 (从 llm_service 获取默认值)
+        # Get embedding dimensions and service configuration (default values from llm_service)
         self.embedding_dim = llm_service.default_embedding_dimensions
         self.embedding_model = llm_service.default_embedding_model
-        # 从环境变量读取嵌入API的批量大小，默认为10 (适配 v3 模型)
+        # Read embedding API batch size from environment variables, default is 10 (optimized for v3 models)
         self.embedding_batch_size = int(os.getenv("API_EMBEDDING_BATCH_SIZE", "10")) 
         
         if not self.embedding_dim:
@@ -45,7 +45,7 @@ class VectorSearchService:
         self._load_index()
     
     def _load_index(self):
-        """如果存在，则从磁盘加载FAISS索引和ID列表"""
+        """Load FAISS index and ID list from disk if they exist"""
         try:
             if os.path.exists(self.index_path) and os.path.exists(self.paper_ids_path):
                 self.index = faiss.read_index(self.index_path)
@@ -62,11 +62,11 @@ class VectorSearchService:
             else:
                 self._create_new_index()
         except Exception as e:
-            logger.error(f"加载索引时出错: {e}. 创建新索引。")
+            logger.error(f"Error loading index: {e}. Creating new index.")
             self._create_new_index()
             
     def _create_new_index(self):
-        """创建新的空FAISS索引"""
+        """Create a new empty FAISS index"""
         self.index = faiss.IndexFlatL2(self.embedding_dim)
         # Consider using IndexIDMap if IDs are non-sequential or need mapping
         # self.index = faiss.IndexIDMap(faiss.IndexFlatL2(self.embedding_dim))
@@ -74,10 +74,10 @@ class VectorSearchService:
         logger.info(f"Created new empty FAISS index with dimension {self.embedding_dim}.")
 
     def _save_index(self):
-        """将FAISS索引和ID列表保存到磁盘"""
+        """Save FAISS index and ID list to disk"""
         try:
             if self.index is None:
-                 logger.error("无法保存空索引")
+                 logger.error("Cannot save empty index")
                  return
             os.makedirs(self.data_dir, exist_ok=True)
             faiss.write_index(self.index, self.index_path)
@@ -85,22 +85,22 @@ class VectorSearchService:
                 pickle.dump(self.paper_ids, f)
             logger.info(f"Saved FAISS index with {self.index.ntotal} vectors and {len(self.paper_ids)} IDs.")
         except Exception as e:
-            logger.error(f"保存索引时出错: {e}")
+            logger.error(f"Error saving index: {e}")
     
     # Renamed generate_embedding to _embed_texts and made it async
     async def _embed_texts(self, texts: List[str]) -> Optional[List[np.ndarray]]:
         """
-        使用 llm_service 生成文本列表的嵌入向量。
-        现在这个方法只接收文本列表，分批逻辑移到调用者处。
+        Generate embeddings for a list of texts using llm_service.
+        This method now only accepts a list of texts, batch logic moved to caller.
         """
         if not texts:
              return []
              
-        # 调用 llm_service (llm_service 内部处理 API 调用)
+        # Call llm_service (llm_service handles API calls internally)
         embeddings = await llm_service.get_embeddings(
             texts=texts,
             model=self.embedding_model,
-            # dimensions 不再传递，使用模型默认值
+            # dimensions no longer passed, using model default
             # dimensions=self.embedding_dim 
         )
         
@@ -112,7 +112,7 @@ class VectorSearchService:
 
     async def add_papers(self, papers: List[Paper]):
         """
-        将论文异步添加到索引 (使用外部API获取嵌入，并进行分批处理)
+        Asynchronously add papers to the index (get embeddings from external API with batch processing)
         """
         start_time = time.time()
         processed_paper_ids = set(self.paper_ids) # Use set for faster lookup
@@ -131,11 +131,11 @@ class VectorSearchService:
                      logger.warning(f"Paper {paper.paper_id} has no text to embed. Skipping.")
                      
         if not texts_to_embed:
-            logger.info("没有新的、包含文本的论文需要添加到索引")
+            logger.info("No new papers with text to add to the index")
             return
 
         total_texts_to_process = len(texts_to_embed)
-        logger.info(f"准备为 {total_texts_to_process} 篇新论文获取嵌入向量，批大小: {self.embedding_batch_size}...")
+        logger.info(f"Preparing to get embeddings for {total_texts_to_process} new papers, batch size: {self.embedding_batch_size}...")
         
         all_new_embeddings = []
         successfully_embedded_ids = []
@@ -148,32 +148,32 @@ class VectorSearchService:
             batch_ids = paper_ids_for_texts[i : i + self.embedding_batch_size]
             batches_processed += 1
             
-            logger.debug(f"  处理批次 {batches_processed}, 数量: {len(batch_texts)}")
+            logger.debug(f"  Processing batch {batches_processed}, count: {len(batch_texts)}")
             batch_embeddings = await self._embed_texts(batch_texts)
             
             if batch_embeddings is not None and len(batch_embeddings) == len(batch_texts):
                  all_new_embeddings.extend(batch_embeddings)
                  successfully_embedded_ids.extend(batch_ids)
-                 logger.debug(f"    批次 {batches_processed} 嵌入成功.")
+                 logger.debug(f"    Batch {batches_processed} embeddings successful.")
                  # Optional: Add a small delay between batches if rate limits are hit
                  await asyncio.sleep(0.2) 
             else:
                  failed_batches += 1
-                 logger.error(f"    批次 {batches_processed} (IDs: {batch_ids}) 嵌入失败或返回数量不匹配. 跳过此批次。")
+                 logger.error(f"    Batch {batches_processed} (IDs: {batch_ids}) embedding failed or returned mismatched count. Skipping this batch.")
                  # Decide if you want to stop the whole process on one batch failure
                  # continue 
 
         if not all_new_embeddings:
-             logger.error("所有批次的嵌入请求均失败。无法向索引添加新论文。")
+             logger.error("All embedding requests for all batches failed. Unable to add new papers to index.")
              return
              
-        logger.info(f"所有批次处理完成。成功获取 {len(all_new_embeddings)}/{total_texts_to_process} 个嵌入向量。失败批次数: {failed_batches}")
+        logger.info(f"All batches processed. Successfully obtained {len(all_new_embeddings)}/{total_texts_to_process} embeddings. Failed batches: {failed_batches}")
 
         # 3. Add successfully embedded vectors and IDs to index
         try:
              embeddings_array = np.array(all_new_embeddings).astype('float32')
              if embeddings_array.ndim != 2 or embeddings_array.shape[0] == 0:
-                  logger.error("最终嵌入向量数组格式不正确或为空，无法添加到索引。")
+                  logger.error("Final embedding array has incorrect format or is empty, cannot add to index.")
                   return
              if embeddings_array.shape[1] != self.embedding_dim:
                   logger.error(f"Received embedding dimension ({embeddings_array.shape[1]}) does not match index dimension ({self.embedding_dim}). Aborting add.")
@@ -185,10 +185,10 @@ class VectorSearchService:
              # 4. Save the updated index
              self._save_index()
              duration = time.time() - start_time
-             logger.info(f"成功添加 {len(successfully_embedded_ids)} 篇新论文到索引. 总数: {self.index.ntotal}. 失败批次数: {failed_batches}. 总耗时: {duration:.2f} 秒.")
+             logger.info(f"Successfully added {len(successfully_embedded_ids)} new papers to index. Total: {self.index.ntotal}. Failed batches: {failed_batches}. Total time: {duration:.2f} seconds.")
              
         except Exception as e:
-            logger.error(f"向索引添加向量或保存时出错: {e}")
+            logger.error(f"Error adding vectors to index or saving: {e}")
             # Rollback might be complex here, as index might be partially updated
             # Best approach might be logging and manual check/rebuild if needed
             raise
@@ -196,18 +196,18 @@ class VectorSearchService:
     # Made search async
     async def search(self, query: str, k: int = 10) -> List[str]:
         """
-        通过查询异步搜索论文 (查询通常是单个文本，不需要分批)
+        Asynchronously search for papers by query (query is typically a single text, no need for batching)
         """
         try:
             if self.index is None or self.index.ntotal == 0:
-                logger.warning("尝试搜索空索引或未初始化的索引")
+                logger.warning("Attempted to search an empty or uninitialized index")
                 return []
             
             # 1. Get query embedding (for a single query text)
             query_embedding_list = await self._embed_texts([query])
             
             if not query_embedding_list or query_embedding_list[0] is None:
-                 logger.error(f"无法为查询生成嵌入向量: '{query}'")
+                 logger.error(f"Failed to get embedding for query: '{query}'")
                  return []
                  
             query_embedding = query_embedding_list[0].reshape(1, -1) 
@@ -230,20 +230,20 @@ class VectorSearchService:
             return result_ids
             
         except Exception as e:
-            logger.error(f"搜索索引时出错: {e}", exc_info=True)
+            logger.error(f"Error searching index: {e}", exc_info=True)
             return []
             
     # search_by_vector remains synchronous as it doesn't need async embedding call
     def search_by_vector(self, vector: np.ndarray, k: int = 10) -> Tuple[List[float], List[str]]:
         """
-        使用预计算的向量搜索索引。
+        Search index using a pre-computed vector.
         
         Args:
-            vector: 查询向量 (numpy array, float32)。
-            k: 返回结果数量。
+            vector: Query vector (numpy array, float32).
+            k: Number of results to return.
         
         Returns:
-            一个元组 (距离列表, 论文ID列表)。
+            A tuple (list of distances, list of paper IDs).
         """
         if self.index is None or self.index.ntotal == 0:
             return [], []
@@ -264,5 +264,5 @@ class VectorSearchService:
         
         return result_distances, result_ids
 
-# 创建全局实例
+# Create global instance
 vector_search_service = VectorSearchService() 
