@@ -100,8 +100,6 @@ class VectorSearchService:
         embeddings = await llm_service.get_embeddings(
             texts=texts,
             model=self.embedding_model,
-            # dimensions no longer passed, using model default
-            # dimensions=self.embedding_dim 
         )
         
         if embeddings is None:

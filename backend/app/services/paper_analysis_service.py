@@ -465,7 +465,7 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
              logger.error(f"Error when calling LLM or processing its response for {paper_id}: {e.__class__.__name__} - {e}")
              return None
 
-    async def analyze_paper(self, paper_id: str, timeout_seconds: int = 120) -> Optional[PaperAnalysis]:
+    async def analyze_paper(self, paper_id: str, timeout_seconds: int = 240) -> Optional[PaperAnalysis]:
         """
         Analyze a single paper: Get information -> Extract text -> Call LLM -> Parse results -> Save analysis
         
@@ -675,41 +675,6 @@ If any aspect is not explicitly mentioned, mark it as "Not explicitly mentioned"
         finally:
             self.is_analyzing = False
             self.current_task = None
-            
-    async def start_analysis_task(self, process_all: bool = False, max_papers: int = None, max_concurrency: int = 2) -> Dict[str, Any]:
-        """
-        Asynchronously start batch paper analysis task
-        
-        Args:
-            process_all: Whether to process all pending papers without batch size limit
-            max_papers: Maximum number of papers to process (if set)
-            max_concurrency: Maximum number of concurrent paper analyses
-        """
-        if self.is_analyzing:
-            logger.info("Analysis task is already running, cannot start new task")
-            return {"status": "already_running", "message": "Analysis task is already running.", "task_id": str(self.current_task.get_name() if self.current_task else None)}
-
-        logger.info(f"Preparing to start background batch analysis task (process all={process_all}, maximum number={max_papers or 'no limit'}, concurrency={max_concurrency})")
-        self.is_analyzing = True # Mark task start
-        
-        # Use asyncio.create_task to run analyze_pending_papers in the background
-        # Save task object if needed for querying status or canceling
-        self.current_task = asyncio.create_task(
-            self.analyze_pending_papers(
-                process_all=process_all, 
-                max_papers=max_papers,
-                max_concurrency=max_concurrency
-            ), 
-            name=f"paper_analysis_task_{datetime.now():%Y%m%d_%H%M%S}"
-        )
-        
-        logger.info(f"Background batch analysis task started: {self.current_task.get_name()}")
-        
-        return {
-            "status": "started", 
-            "message": "Background analysis task started.",
-            "task_id": str(self.current_task.get_name())
-        }
 
 # Create global service instance
 paper_analysis_service = PaperAnalysisService() 

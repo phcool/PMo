@@ -10,12 +10,8 @@ import pathlib
 # Load environment variables
 load_dotenv()
 
-# Ensure Hugging Face mirror site is set
-if "HF_ENDPOINT" not in os.environ:
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-from app.api import paper, search, scheduler, user
-from app.services.scheduler_service import scheduler_service
+from app.api import paper, search, user
 
 # Configure logging
 logging.basicConfig(
@@ -32,14 +28,12 @@ logger.info(f"Using frontend static files directory: {FRONTEND_DIST_DIR}")
 # Create API sub-application
 api_app = FastAPI(
     title="DL Paper Monitor API",
-    description="A Deep Learning Paper Collection and Search Service API",
     version="0.1.0"
 )
 
 # Main application
 app = FastAPI(
     title="DL Paper Monitor",
-    description="A Deep Learning Paper Collection and Search Service",
     version="0.1.0"
 )
 
@@ -55,7 +49,6 @@ app.add_middleware(
 # Include API routes - using correct prefixes
 api_app.include_router(paper.router, prefix="/papers", tags=["papers"])
 api_app.include_router(search.router, prefix="/search", tags=["search"])
-api_app.include_router(scheduler.router, prefix="/scheduler", tags=["scheduler"])
 api_app.include_router(user.router, prefix="/user", tags=["user"])
 
 # Mount API sub-application to main application
@@ -103,33 +96,3 @@ async def serve_spa(request: Request, full_path: str):
         raise HTTPException(status_code=404, detail="Frontend files not found")
 
 # Application startup and shutdown events
-@app.on_event("startup")
-async def startup_event():
-    """Execute on application startup"""
-    # Check if frontend directory exists
-    if not os.path.exists(FRONTEND_DIST_DIR):
-        logger.error(f"Frontend directory does not exist: {FRONTEND_DIST_DIR}")
-    elif not os.path.exists(os.path.join(FRONTEND_DIST_DIR, "index.html")):
-        logger.error(f"index.html file does not exist: {os.path.join(FRONTEND_DIST_DIR, 'index.html')}")
-    
-    # Check if scheduler is disabled (when using cron jobs)
-    disable_scheduler = os.getenv("DISABLE_SCHEDULER", "false").lower() == "true"
-    if disable_scheduler:
-        logger.info("Scheduler is disabled (DISABLE_SCHEDULER=true), using cron jobs instead")
-        return
-        
-    # Auto-start paper fetch scheduler
-    auto_start = os.getenv("AUTO_START_SCHEDULER", "true").lower() == "true"
-    if auto_start:
-        logger.info("Starting paper fetch scheduler...")
-        scheduler_service.start()
-        logger.info("Paper fetch scheduler started")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Execute on application shutdown"""
-    # Stop scheduled tasks
-    if scheduler_service.is_running:
-        logger.info("Stopping paper fetch scheduler...")
-        scheduler_service.stop() 
-        logger.info("Paper fetch scheduler stopped")

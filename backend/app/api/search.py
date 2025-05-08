@@ -28,13 +28,6 @@ async def search_papers(search_request: PaperSearchRequest):
         # Get paper details from the database
         papers = await db_service.get_papers_by_ids(paper_ids)
         
-        # Filter by categories if specified
-        if search_request.categories:
-            papers = [
-                p for p in papers if any(
-                    cat in p.categories for cat in search_request.categories
-                )
-            ]
         
         # Convert to response model
         paper_responses = [

@@ -94,6 +94,91 @@ export default {
   },
 
   /**
+   * Chat with AI about a paper
+   */
+  async chatWithPaper(
+    paperId: string, 
+    data: { message: string, context_messages?: Array<{role: string, content: string}> },
+    onChunk?: (chunk: string, isDone: boolean) => void
+  ): Promise<any> {
+    // 如果提供了 onChunk 回调，使用流式处理
+    if (onChunk) {
+      try {
+        const response = await fetch(`/api/papers/${paperId}/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userService.getUserId() || ''
+          },
+          body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('Stream reader not available');
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        // 读取流数据
+        while (true) {
+          const { value, done } = await reader.read();
+          
+          if (done) {
+            // 处理最后一个块
+            if (buffer) {
+              try {
+                const chunk = JSON.parse(buffer);
+                onChunk(chunk.content, chunk.done);
+              } catch (e) {
+                console.error('Error parsing final chunk:', buffer);
+              }
+            }
+            break;
+          }
+
+          // 将数据添加到缓冲区并按行处理
+          buffer += decoder.decode(value, { stream: true });
+          
+          // 按行处理数据
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留未完成的最后一行
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const chunk = JSON.parse(line);
+                onChunk(chunk.content, chunk.done);
+                if (chunk.done) {
+                  return { success: true };
+                }
+              } catch (e) {
+                console.error('Error parsing chunk:', line);
+              }
+            }
+          }
+        }
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Error with streaming chat:', error);
+        throw error;
+      }
+    } else {
+      // 原方法作为后备，不使用流式处理
+      const response = await api.post(`/api/papers/${paperId}/chat`, data, {
+        timeout: 60000 // 1 minute timeout for chat responses
+      });
+      return response.data;
+    }
+  },
+
+  /**
    * Trigger batch paper analysis
    */
   async analyzeBatchPapers(): Promise<any> {
