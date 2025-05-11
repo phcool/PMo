@@ -1,27 +1,18 @@
-#!/bin/bash
 
-# 设置环境变量
-export FRONTEND_DIST_DIR="/home/phcool/dlmonitor/frontend/dist"
-export DISABLE_SCHEDULER="true"
-export API_HOST="0.0.0.0"
-export API_PORT="8000"
-export API_RELOAD="False"
-export LOG_LEVEL="INFO"  # 改回INFO级别
 
-# 确认前端目录存在
-if [ ! -d "$FRONTEND_DIST_DIR" ]; then
-  echo "错误: 前端目录不存在: $FRONTEND_DIST_DIR"
-  exit 1
-fi
+# 获取当前路径
+CURRENT_DIR=$(pwd)
+echo "Starting server from $CURRENT_DIR"
 
-if [ ! -f "$FRONTEND_DIST_DIR/index.html" ]; then
-  echo "错误: index.html不存在于前端目录: $FRONTEND_DIST_DIR"
-  exit 1
-fi
+# 确保日志文件存在
+touch backend/logs/output.log
 
-# 进入后端目录
-cd /home/phcool/dlmonitor/backend
+# 用nohup运行后端服务，后台执行，输出重定向到日志文件
+echo "Starting backend server with nohup..."
+nohup python backend/run.py > backend/logs/output.log 2>&1 &
 
-# 启动FastAPI服务器
-echo "正在启动服务器..."
-python run.py 
+# 保存进程ID到文件
+echo $! > backend/logs/server.pid
+echo "Server started with PID: $!"
+echo "Logs are being written to: backend/logs/output.log"
+echo "To stop the server, run: kill \$(cat backend/logs/server.pid)" 
