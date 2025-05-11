@@ -100,12 +100,18 @@ class LLMService:
             logger.debug(f"Sending paper analysis request to LLM. Model: {use_model}, Temp: {use_temperature}, MaxTokens: {use_max_tokens}, Format: {response_format}")
             start_time = time.time()
             
+            # 禁用思考模式
+            extra_body = {
+                "enable_thinking": False
+            }
+            
             completion = await self.client.chat.completions.create(
                 model=use_model,
                 messages=messages,
                 temperature=use_temperature,
                 max_tokens=use_max_tokens,
-                response_format=response_format # Pass format if provided
+                response_format=response_format, # Pass format if provided
+                extra_body=extra_body  # 禁用思考模式
             )
             
             duration = time.time() - start_time
@@ -161,13 +167,19 @@ class LLMService:
             logger.debug(f"Sending conversation request to LLM. Model: {self.conversation_model}, Temp: {use_temperature}, MaxTokens: {use_max_tokens}, Stream: {stream}")
             start_time = time.time()
             
+            # 禁用思考模式
+            extra_body = {
+                "enable_thinking": False
+            }
+            
             # Always use stream mode for qwen-3 model as required by the API
             stream_response = await self.client.chat.completions.create(
                 model=self.conversation_model,
                 messages=messages,
                 temperature=use_temperature,
                 max_tokens=use_max_tokens,
-                stream=True  # 强制使用流式模式
+                stream=True,  # 强制使用流式模式
+                extra_body=extra_body  # 禁用思考模式
             )
             
             # 收集流式响应的所有块，合并为完整的响应

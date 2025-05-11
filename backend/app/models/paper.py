@@ -30,34 +30,6 @@ class Paper(BaseModel):
         }
 
 
-class PaperAnalysis(BaseModel):
-    """Paper PDF analysis result model"""
-    paper_id: str = Field(..., description="Paper ID")
-    summary: Optional[str] = Field(None, description="Paper summary")
-    key_findings: Optional[str] = Field(None, description="Key findings")
-    contributions: Optional[str] = Field(None, description="Main contributions")
-    methodology: Optional[str] = Field(None, description="Methodology")
-    limitations: Optional[str] = Field(None, description="Limitations")
-    future_work: Optional[str] = Field(None, description="Future work")
-    keywords: Optional[str] = Field(None, description="Paper keywords")
-    created_at: datetime = Field(..., description="Creation time")
-    updated_at: datetime = Field(..., description="Update time")
-
-
-class PaperAnalysisResponse(BaseModel):
-    """Paper PDF analysis result response model"""
-    paper_id: str
-    summary: Optional[str] = None
-    key_findings: Optional[str] = None
-    contributions: Optional[str] = None
-    methodology: Optional[str] = None
-    limitations: Optional[str] = None
-    future_work: Optional[str] = None
-    keywords: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-
 class PaperResponse(BaseModel):
     """Model for paper response without embeddings"""
     paper_id: str
@@ -68,7 +40,6 @@ class PaperResponse(BaseModel):
     pdf_url: str
     published_date: datetime
     updated_at: Optional[datetime] = None
-    analysis: Optional[PaperAnalysisResponse] = None
 
 
 class PaperSearchRequest(BaseModel):

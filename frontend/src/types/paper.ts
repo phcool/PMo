@@ -8,20 +8,6 @@ export interface Paper {
   pdf_url: string;
   published_date: string;
   updated_date?: string;
-  analysis?: PaperAnalysis;
-}
-
-// Paper analysis interface
-export interface PaperAnalysis {
-  paper_id: string;
-  summary?: string;
-  key_findings?: string;
-  contributions?: string;
-  methodology?: string;
-  limitations?: string;
-  future_work?: string;
-  created_at: string;
-  updated_at: string;
 }
 
 // Search request parameters

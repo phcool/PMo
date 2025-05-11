@@ -38,7 +38,6 @@ class DBPaper(Base):
     # Relationships
     authors = relationship("DBAuthor", secondary=paper_authors, backref="papers")
     categories = relationship("DBCategory", secondary=paper_categories, backref="papers")
-    analysis = relationship("DBPaperAnalysis", uselist=False, back_populates="paper", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Paper {self.paper_id}: {self.title}>"
@@ -62,27 +61,6 @@ class DBCategory(Base):
     
     def __repr__(self):
         return f"<Category {self.name}>"
-
-class DBPaperAnalysis(Base):
-    """Paper PDF analysis results database model"""
-    __tablename__ = "paper_analysis"
-    
-    paper_id = Column(String, ForeignKey("papers.paper_id"), primary_key=True)
-    summary = Column(Text, nullable=True)
-    key_findings = Column(Text, nullable=True)
-    contributions = Column(Text, nullable=True)
-    methodology = Column(Text, nullable=True)
-    limitations = Column(Text, nullable=True)  
-    future_work = Column(Text, nullable=True)
-    keywords = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    paper = relationship("DBPaper", back_populates="analysis")
-    
-    def __repr__(self):
-        return f"<PaperAnalysis {self.paper_id}>"
 
 # Modify user table name
 class DBUserPreferences(Base):

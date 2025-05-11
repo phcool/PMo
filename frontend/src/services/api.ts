@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Paper, SearchRequest, SearchResponse, PaperAnalysis } from '@/types/paper';
+import type { Paper, SearchRequest, SearchResponse } from '@/types/paper';
 import userService from './user';
 
 // Create axios instance
@@ -76,24 +76,6 @@ export default {
   },
 
   /**
-   * Get paper analysis by ID
-   */
-  async getPaperAnalysis(paperId: string): Promise<PaperAnalysis> {
-    const response = await api.get(`/api/papers/${paperId}/analysis`);
-    return response.data;
-  },
-
-  /**
-   * Trigger paper analysis
-   */
-  async analyzePaper(paperId: string): Promise<any> {
-    const response = await api.post(`/api/papers/${paperId}/analyze`, null, {
-      timeout: 300000 // 5 minute timeout, paper analysis is a time-consuming operation
-    });
-    return response.data;
-  },
-
-  /**
    * Chat with AI about a paper
    */
   async chatWithPaper(
@@ -101,16 +83,66 @@ export default {
     data: { message: string, context_messages?: Array<{role: string, content: string}> },
     onChunk?: (chunk: string, isDone: boolean) => void
   ): Promise<any> {
+    // Create a new chat session linked to the paper
+    const createSessionResponse = await api.post('/api/chat/sessions', null, {
+      params: { paper_id: paperId }
+    });
+    
+    const chatId = createSessionResponse.data.chat_id;
+    
+    // Use the streaming API to send a message and get a response
+    return this.sendChatMessage(chatId, data.message, onChunk);
+  },
+  
+  /**
+   * Create a new chat session, optionally linked to a paper
+   */
+  async createChatSession(paperId?: string): Promise<{ chat_id: string }> {
+    const response = await api.post('/api/chat/sessions', null, {
+      params: paperId ? { paper_id: paperId } : undefined
+    });
+    return response.data;
+  },
+  
+  /**
+   * Upload a PDF file to a chat session
+   */
+  async uploadPdfToChat(chatId: string, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await api.post(
+      `/api/chat/sessions/${chatId}/upload`, 
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 60000 // Longer timeout for file uploads
+      }
+    );
+    
+    return response.data;
+  },
+  
+  /**
+   * Send a message to a chat session and get a streaming response
+   */
+  async sendChatMessage(
+    chatId: string,
+    message: string,
+    onChunk?: (chunk: string, isDone: boolean) => void
+  ): Promise<any> {
     // 如果提供了 onChunk 回调，使用流式处理
     if (onChunk) {
       try {
-        const response = await fetch(`/api/papers/${paperId}/chat`, {
+        const response = await fetch(`/api/chat/sessions/${chatId}/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-User-ID': userService.getUserId() || ''
           },
-          body: JSON.stringify(data)
+          body: JSON.stringify({ message })
         });
 
         if (!response.ok) {
@@ -170,19 +202,19 @@ export default {
         throw error;
       }
     } else {
-      // 原方法作为后备，不使用流式处理
-      const response = await api.post(`/api/papers/${paperId}/chat`, data, {
+      // 不使用流式处理（不推荐）
+      const response = await api.post(`/api/chat/sessions/${chatId}/chat`, { message }, {
         timeout: 60000 // 1 minute timeout for chat responses
       });
       return response.data;
     }
   },
-
+  
   /**
-   * Trigger batch paper analysis
+   * End a chat session and clean up resources
    */
-  async analyzeBatchPapers(): Promise<any> {
-    const response = await api.post('/api/papers/analyze-batch');
+  async endChatSession(chatId: string): Promise<any> {
+    const response = await api.delete(`/api/chat/sessions/${chatId}`);
     return response.data;
   },
   
@@ -244,5 +276,13 @@ export default {
       params: { limit, days }
     });
     return response.data;
-  }
+  },
+
+  /**
+   * Check the processing status of a file upload
+   */
+  async getProcessingStatus(chatId: string): Promise<{ processing: boolean, file_name: string }> {
+    const response = await api.get(`/api/chat/sessions/${chatId}/processing-status`);
+    return response.data;
+  },
 }; 

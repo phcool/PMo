@@ -8,8 +8,8 @@ from sqlalchemy.future import select
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import selectinload
 
-from app.models.paper import Paper, PaperResponse, PaperAnalysis, PaperAnalysisResponse
-from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBPaperAnalysis, DBUserPreferences, DBUserSearchHistory, DBUserPaperView
+from app.models.paper import Paper, PaperResponse
+from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBUserPreferences, DBUserSearchHistory, DBUserPaperView
 from app.models.user import UserPreferences, SearchHistoryItem, UserSearchHistory, PaperViewItem, UserPaperViews
 from app.db.database import get_async_db
 
@@ -158,8 +158,7 @@ class DBService:
                 select(DBPaper)
                 .options(
                     selectinload(DBPaper.authors),
-                    selectinload(DBPaper.categories),
-                    selectinload(DBPaper.analysis)
+                    selectinload(DBPaper.categories)
                 )
                 .where(DBPaper.paper_id == paper_id)
             )
@@ -317,148 +316,16 @@ class DBService:
     
     async def count_papers(self) -> int:
         """
-        Count the total number of papers in the database
+        Count total papers in database
         
         Returns:
-            Number of papers
+            Total paper count
         """
         async for db in get_async_db():
             result = await db.execute(select(func.count()).select_from(DBPaper))
-            return result.scalar_one()
-        
+            count = result.scalar_one()
+            return count
         return 0
-
-    async def save_paper_analysis(self, analysis: PaperAnalysis) -> bool:
-        """
-        Save paper analysis results
-        
-        Args:
-            analysis: Paper analysis object
-            
-        Returns:
-            Whether the operation was successful
-        """
-        try:
-            async for db in get_async_db():
-                # Check if analysis exists
-                result = await db.execute(select(DBPaperAnalysis).filter(DBPaperAnalysis.paper_id == analysis.paper_id))
-                db_analysis = result.scalars().first()
-                
-                if db_analysis:
-                    # Update existing analysis
-                    db_analysis.summary = analysis.summary
-                    db_analysis.key_findings = analysis.key_findings
-                    db_analysis.contributions = analysis.contributions
-                    db_analysis.methodology = analysis.methodology
-                    db_analysis.limitations = analysis.limitations
-                    db_analysis.future_work = analysis.future_work
-                    db_analysis.keywords = analysis.keywords
-                    db_analysis.updated_at = datetime.utcnow()
-                    logger.info(f"Updated paper analysis: {analysis.paper_id}")
-                else:
-                    # Create new analysis
-                    db_analysis = DBPaperAnalysis(
-                        paper_id=analysis.paper_id,
-                        summary=analysis.summary,
-                        key_findings=analysis.key_findings,
-                        contributions=analysis.contributions,
-                        methodology=analysis.methodology,
-                        limitations=analysis.limitations,
-                        future_work=analysis.future_work,
-                        keywords=analysis.keywords,
-                        created_at=analysis.created_at or datetime.utcnow(), # Use provided or default
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(db_analysis)
-                    logger.info(f"Created new paper analysis: {analysis.paper_id}")
-                
-                await db.commit()
-                return True
-        
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Failed to save paper analysis {analysis.paper_id}: {e}")
-            return False
-        return False # Should not happen if get_async_db works
-
-    async def get_paper_analysis(self, paper_id: str) -> Optional[PaperAnalysis]:
-        """
-        Get paper analysis results
-        
-        Args:
-            paper_id: Paper ID
-            
-        Returns:
-            Paper analysis object or None (if not found)
-        """
-        try:
-            async for db in get_async_db():
-                result = await db.execute(
-                    select(DBPaperAnalysis).where(DBPaperAnalysis.paper_id == paper_id)
-                )
-                db_analysis = result.scalars().first()
-                
-                if not db_analysis:
-                    return None
-                
-                return PaperAnalysis(
-                    paper_id=db_analysis.paper_id,
-                    summary=db_analysis.summary,
-                    key_findings=db_analysis.key_findings,
-                    contributions=db_analysis.contributions,
-                    methodology=db_analysis.methodology,
-                    limitations=db_analysis.limitations,
-                    future_work=db_analysis.future_work,
-                    keywords=db_analysis.keywords,
-                    created_at=db_analysis.created_at,
-                    updated_at=db_analysis.updated_at
-                )
-        
-        except Exception as e:
-            logger.error(f"Error getting paper analysis results: {e}")
-            return None
-
-    async def get_papers_without_analysis(self, limit: int = 30) -> List[Paper]:
-        """
-        Get papers without analysis
-        
-        Args:
-            limit: Maximum return count
-            
-        Returns:
-            List of papers
-        """
-        papers = []
-        async for db in get_async_db():
-            # Query papers without associated analysis
-            stmt = (
-                select(DBPaper)
-                .options(
-                    selectinload(DBPaper.authors),
-                    selectinload(DBPaper.categories)
-                )
-                .outerjoin(DBPaperAnalysis)
-                .where(DBPaperAnalysis.paper_id == None)
-                .limit(limit)
-            )
-            
-            result = await db.execute(stmt)
-            db_papers = result.scalars().all()
-            
-            for db_paper in db_papers:
-                papers.append(Paper(
-                    paper_id=db_paper.paper_id,
-                    title=db_paper.title,
-                    authors=[author.name for author in db_paper.authors],
-                    abstract=db_paper.abstract,
-                    categories=[category.name for category in db_paper.categories],
-                    pdf_url=db_paper.pdf_url,
-                    published_date=db_paper.published_date,
-                    updated_date=db_paper.updated_date,
-                    embedding=None
-                ))
-                
-        return papers
 
     # User preferences related methods
     async def get_user_preferences(self, user_id: str) -> Optional[UserPreferences]:
