@@ -1,4 +1,7 @@
+#!/bin/bash
 
+# 创建日志目录（如果不存在）
+mkdir -p backend/logs
 
 # 获取当前路径
 CURRENT_DIR=$(pwd)

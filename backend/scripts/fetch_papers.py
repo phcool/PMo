@@ -116,6 +116,23 @@ async def fetch_papers():
             # Add to database
             added_ids = await db_service.add_papers(batch_papers)
             
+            # 检查是否成功添加了新文章
+            if len(added_ids) == 0:
+                # 如果第一批中没有新文章，说明所有文章都已存在，可以停止获取
+                logger.info(f"No new papers in batch {batch_start//BATCH_SIZE + 1}, all papers already exist in database. Stopping fetch.")
+                break
+                
+            # 如果只添加了部分文章，检查第一篇文章是否存在
+            if len(added_ids) < len(batch_papers) and batch_papers[0].paper_id not in added_ids:
+                logger.info(f"First paper in batch already exists in database. Stopping fetch to avoid duplicate processing.")
+                # 添加已经获取的新文章到向量索引
+                if added_ids:
+                    papers_to_add = [p for p in batch_papers if p.paper_id in added_ids]
+                    await vector_search_service.add_papers(papers_to_add)
+                    all_added_ids.update(added_ids)
+                    total_added += len(added_ids)
+                break
+            
             # If there are newly added papers, update the vector index
             if added_ids:
                 papers_to_add = [p for p in batch_papers if p.paper_id in added_ids]
