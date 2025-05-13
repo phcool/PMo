@@ -4,6 +4,7 @@
       <nav>
         <router-link to="/">Home</router-link>
         <router-link to="/history">History</router-link>
+        <router-link to="/chat">Chat</router-link>
       </nav>
     </header>
     
@@ -130,10 +131,12 @@ body {
 
 .app-content {
   flex: 1;
-  padding: 2rem;
-  max-width: 1200px;
+  padding: 0;
+  max-width: none;
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-footer {

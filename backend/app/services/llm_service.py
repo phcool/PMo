@@ -32,7 +32,7 @@ class LLMService:
                  
         self.api_url = os.getenv("LLM_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         
-        # Paper analysis model (for PDF processing)
+        # Paper analysis model (for PDF processing) - Keep for reference but no longer used directly
         self.paper_analysis_model = os.getenv("LLM_PAPER_MODEL", "qwen-turbo") 
         
         # Conversation model (for user interaction)
@@ -60,87 +60,17 @@ class LLMService:
                     timeout=self.request_timeout, 
                     max_retries=2 
                 )
-                logger.info(f"LLMService initialized. Paper model: {self.paper_analysis_model}, Conversation model: {self.conversation_model}, Embedding model: {self.default_embedding_model} at {self.api_url}")
+                logger.info(f"LLMService initialized. Conversation model: {self.conversation_model}, Embedding model: {self.default_embedding_model} at {self.api_url}")
             except Exception as e:
                  logger.error(f"Failed to initialize AsyncOpenAI client: {e}")
                  self.client = None
-    
-    async def get_chat_completion(
-        self,
-        messages: List[Dict[str, str]],
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        response_format: Optional[Dict[str, str]] = None
-    ) -> Optional[ChatCompletion]: 
-        """
-        Call chat model API to get completion results for paper analysis.
-        By default uses the paper analysis model (qwen-turbo).
-        
-        Args:
-            messages: List of dialogue messages in format [{"role": "user", "content": "..."}]
-            model: Model name to use (defaults to paper_analysis_model)
-            temperature: Temperature to control randomness (defaults to the temperature set during initialization)
-            max_tokens: Maximum number of tokens to generate in the response (defaults to the setting during initialization)
-            response_format: Requested response format (e.g. {"type": "json_object"})
-            
-        Returns:
-            OpenAI ChatCompletion object, or None if the API call fails.
-        """
-        if not self.client:
-            logger.error("LLM client not initialized, cannot call API")
-            return None
-        
-        # Use provided parameters or fall back to defaults
-        use_model = model if model is not None else self.paper_analysis_model
-        use_temperature = temperature if temperature is not None else self.paper_analysis_temperature
-        use_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
-        
-        try:
-            logger.debug(f"Sending paper analysis request to LLM. Model: {use_model}, Temp: {use_temperature}, MaxTokens: {use_max_tokens}, Format: {response_format}")
-            start_time = time.time()
-            
-            # 禁用思考模式
-            extra_body = {
-                "enable_thinking": False
-            }
-            
-            completion = await self.client.chat.completions.create(
-                model=use_model,
-                messages=messages,
-                temperature=use_temperature,
-                max_tokens=use_max_tokens,
-                response_format=response_format, # Pass format if provided
-                extra_body=extra_body  # 禁用思考模式
-            )
-            
-            duration = time.time() - start_time
-            logger.debug(f"Received LLM response. Duration: {duration:.2f} seconds. Usage: {completion.usage}")
-            return completion
-            
-        except RateLimitError as e:
-            logger.error(f"LLM API rate limit exceeded: {e}")
-            return None
-        except APITimeoutError as e:
-            logger.error(f"LLM API timeout: {e}")
-            return None
-        except APIConnectionError as e:
-            logger.error(f"LLM API connection error: {e}")
-            return None
-        except APIError as e:
-            logger.error(f"LLM API error: {e}")
-            return None
-        except Exception as e: # Catch broader errors like timeouts included in the client
-             logger.error(f"Unknown error occurred when calling LLM API: {e.__class__.__name__} - {e}")
-             return None
 
     async def get_conversation_completion(
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        stream: bool = True
-    ) -> Optional[ChatCompletion]:
+        max_tokens: Optional[int] = None
+    ) -> Optional[Any]:
         """
         Call chat model API specifically for conversation purposes.
         By default uses the conversation model (qwen-3).
@@ -149,11 +79,9 @@ class LLMService:
             messages: List of dialogue messages in format [{"role": "user", "content": "..."}]
             temperature: Temperature to control randomness (defaults to the conversation temperature)
             max_tokens: Maximum number of tokens to generate in the response (defaults to the setting during initialization)
-            stream: Whether to stream the response (default: True for qwen-3 model)
             
         Returns:
-            OpenAI ChatCompletion object, or None if the API call fails.
-            If stream=True, will collect all chunks and return the complete response.
+            Stream of token delta content from the LLM API, or None if the API call fails.
         """
         if not self.client:
             logger.error("LLM client not initialized, cannot call API")
@@ -164,7 +92,7 @@ class LLMService:
         use_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         
         try:
-            logger.debug(f"Sending conversation request to LLM. Model: {self.conversation_model}, Temp: {use_temperature}, MaxTokens: {use_max_tokens}, Stream: {stream}")
+            logger.debug(f"Sending conversation request to LLM. Model: {self.conversation_model}, Temp: {use_temperature}, MaxTokens: {use_max_tokens}, Stream: True")
             start_time = time.time()
             
             # 禁用思考模式
@@ -172,8 +100,8 @@ class LLMService:
                 "enable_thinking": False
             }
             
-            # Always use stream mode for qwen-3 model as required by the API
-            stream_response = await self.client.chat.completions.create(
+            # Always use stream mode for LLM responses
+            response = await self.client.chat.completions.create(
                 model=self.conversation_model,
                 messages=messages,
                 temperature=use_temperature,
@@ -182,45 +110,9 @@ class LLMService:
                 extra_body=extra_body  # 禁用思考模式
             )
             
-            # 收集流式响应的所有块，合并为完整的响应
-            full_content = ""
-            async for chunk in stream_response:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    full_content += chunk.choices[0].delta.content
-            
-            # 构造类似非流式响应的结构
-            duration = time.time() - start_time
-            logger.debug(f"Received complete conversation response from stream. Duration: {duration:.2f} seconds.")
-            
-            # 创建一个模拟的完整响应
-            from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
-            from openai.types.completion_usage import CompletionUsage
-            
-            # 创建一个模拟的响应对象
-            completion = ChatCompletion(
-                id="stream-response",
-                choices=[
-                    Choice(
-                        finish_reason="stop",
-                        index=0,
-                        message=ChatCompletionMessage(
-                            content=full_content,
-                            role="assistant"
-                        )
-                    )
-                ],
-                created=int(time.time()),
-                model=self.conversation_model,
-                object="chat.completion",
-                # 由于我们无法准确获取token使用情况，所以这里提供一个估计值或空值
-                usage=CompletionUsage(
-                    completion_tokens=-1,
-                    prompt_tokens=-1,
-                    total_tokens=-1
-                )
-            )
-            
-            return completion
+            # 直接返回流对象
+            logger.debug(f"Returning stream response for LLM conversation.")
+            return response
             
         except RateLimitError as e:
             logger.error(f"LLM API rate limit exceeded: {e}")

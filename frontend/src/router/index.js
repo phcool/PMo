@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
+import UserHistoryView from '../views/UserHistoryView.vue'
 
 // Define routes
 const routes = [
@@ -17,7 +18,13 @@ const routes = [
   {
     path: '/history',
     name: 'user-history',
-    component: () => import('../views/UserHistoryView.vue')
+    component: UserHistoryView
+  },
+  {
+    path: '/chat/:paperId?',
+    name: 'chat',
+    component: () => import('../views/ChatView.vue'),
+    props: true
   },
   {
     // Catch all route (404)
@@ -29,7 +36,7 @@ const routes = [
 
 // Create router instance
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory('/'),
   routes,
   scrollBehavior() {
     // Disable automatic scrolling, let components control it

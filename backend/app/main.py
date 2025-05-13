@@ -65,7 +65,16 @@ if os.path.exists(PDFJS_DIR) and os.path.isdir(PDFJS_DIR):
 ASSETS_DIR = os.path.join(FRONTEND_DIST_DIR, "assets")
 if os.path.exists(ASSETS_DIR) and os.path.isdir(ASSETS_DIR):
     logger.info(f"Mounting assets directory: {ASSETS_DIR}")
-    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR, html=True), name="assets")
+
+# Mount favicon and other static files at root level if they exist
+for static_file in ["favicon.ico"]:
+    file_path = os.path.join(FRONTEND_DIST_DIR, static_file)
+    if os.path.exists(file_path):
+        logger.info(f"Serving static file at root: {static_file}")
+        @app.get(f"/{static_file}", include_in_schema=False)
+        async def serve_static_file():
+            return FileResponse(file_path)
 
 # Root route - return frontend homepage
 @app.get("/", include_in_schema=False)
@@ -82,6 +91,23 @@ async def serve_spa(request: Request, full_path: str):
     if request.url.path.startswith("/api/"):
         logger.warning(f"API request reached wildcard route: {request.url.path}")
         return {"error": "API route does not exist", "path": request.url.path}
+    
+    # 如果是以assets开头的请求，尝试提供静态文件
+    if full_path.startswith("assets/"):
+        requested_file = os.path.join(FRONTEND_DIST_DIR, full_path)
+        if os.path.exists(requested_file) and os.path.isfile(requested_file):
+            logger.info(f"Serving asset file: {full_path}")
+            return FileResponse(requested_file)
+            
+        # 如果找不到精确名称的资源文件，尝试通过前缀匹配
+        asset_dir = os.path.dirname(requested_file)
+        filename_prefix = os.path.basename(requested_file).split('-')[0]
+        
+        if os.path.exists(asset_dir) and os.path.isdir(asset_dir):
+            for file in os.listdir(asset_dir):
+                if file.startswith(filename_prefix):
+                    logger.info(f"Found alternative asset file: {file} for {full_path}")
+                    return FileResponse(os.path.join(asset_dir, file))
     
     # Check if the requested file exists directly (e.g., favicon.ico)
     requested_file = os.path.join(FRONTEND_DIST_DIR, full_path)

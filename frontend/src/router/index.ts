@@ -21,6 +21,16 @@ const routes: Array<RouteRecordRaw> = [
     props: true
   },
   {
+    path: '/chat',
+    name: 'chat',
+    component: () => import(/* webpackChunkName: "chat" */ '@/views/ChatView.vue')
+  },
+  {
+    path: '/history',
+    name: 'history',
+    component: () => import(/* webpackChunkName: "history" */ '@/views/UserHistoryView.vue')
+  },
+  {
     // Catch all route (404)
     path: '/:pathMatch(.*)*',
     name: 'not-found',

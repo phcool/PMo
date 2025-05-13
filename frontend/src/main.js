@@ -10,6 +10,12 @@ import { faSearch, faCog, faTimes } from '@fortawesome/free-solid-svg-icons'
 // Import Font Awesome component
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
+// Import styles
+
+// Import Toast
+import Toast from 'vue-toastification'
+import 'vue-toastification/dist/index.css'
+
 // Add icons to the library
 library.add(faSearch, faCog, faTimes)
 
@@ -24,6 +30,25 @@ app.use(createPinia())
 
 // Use Vue Router for navigation
 app.use(router)
+
+// Toast configuration
+const toastOptions = {
+  position: 'top-right',
+  timeout: 3000,
+  closeOnClick: true,
+  pauseOnFocusLoss: true,
+  pauseOnHover: true,
+  draggable: true,
+  draggablePercent: 0.6,
+  hideProgressBar: false,
+  closeButton: 'button',
+  icon: true,
+  rtl: false,
+  transition: 'Vue-Toastification__bounce',
+  maxToasts: 3
+}
+
+app.use(Toast, toastOptions)
 
 // Mount app
 app.mount('#app') 

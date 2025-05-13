@@ -133,7 +133,7 @@
             <button @click="togglePdfViewer" class="action-button primary">
               {{ showPdf ? 'Hide PDF' : 'PDF' }}
             </button>
-            <button @click="toggleChatMode" class="action-button primary">
+            <button @click="goToChat" class="action-button primary">
               Chat with AI
             </button>
             <button @click="goBack" class="action-button">
@@ -834,6 +834,10 @@ What would you like to know about this paper?`
       }
     };
     
+    const goToChat = () => {
+      router.push({ name: 'chat', params: { paperId: paper.value.paper_id } });
+    };
+    
     // Fetch paper details
     onMounted(async () => {
       const paperId = route.params.id;
@@ -904,7 +908,8 @@ What would you like to know about this paper?`
       deleteFile,
       closePdf,
       handleUserScroll,
-      shouldAutoScroll
+      shouldAutoScroll,
+      goToChat
     };
   }
 })

@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 
 from app.services.llm_service import llm_service
 from app.services.pdf_service import pdf_service
-from app.models.paper import Paper
+# Paper model不再需要导入，因为我们简化了聊天功能，移除了特定研究论文的元数据处理
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class ChatService:
         
         Args:
             paper_id: Optional paper ID if chat is about a specific paper
+                     (仍然保留此参数以保持兼容性，但不再提供论文元数据给模型)
             
         Returns:
             Chat session ID
@@ -277,16 +278,19 @@ class ChatService:
             logger.error(f"Error ending chat session {chat_id}: {str(e)}")
             return False
     
-    async def _format_messages_for_api(self, chat_id: str, paper: Optional[Paper] = None) -> List[Dict[str, str]]:
+    async def _format_messages_for_api(self, chat_id: str) -> List[Dict[str, str]]:
         """
         Format messages for the LLM API call, including system prompt
         
         Args:
             chat_id: Chat session ID
-            paper: Optional paper object for paper-specific context
             
         Returns:
             List of formatted messages for API
+            
+        Note:
+            此方法已简化，移除了paper元数据相关功能。现在使用通用的助手提示词，
+            不再针对研究论文提供特定的元数据上下文。
         """
         chat_data = self.active_chats.get(chat_id)
         if not chat_data:
@@ -294,7 +298,7 @@ class ChatService:
             return []
         
         # Start with a system prompt
-        system_content = "You are a helpful academic assistant that provides accurate, concise and thoughtful responses about research papers."
+        system_content = "You are a helpful assistant that provides accurate, concise and thoughtful responses to user questions."
         
         # 检查会话是否有多个文件
         has_uploaded_pdfs = False
@@ -308,26 +312,6 @@ class ChatService:
         elif chat_data.get("file_path"):
             # 兼容旧版本的单文件逻辑
             has_uploaded_pdfs = True
-            
-        # Add paper-specific context if available
-        if paper:
-            paper_context = f"""
-            Paper information:
-            - Title: {paper.title}
-            - Authors: {', '.join(paper.authors)}
-            - Abstract: {paper.abstract}
-            - Categories: {', '.join(paper.categories)}
-            """
-            system_content += f"\n{paper_context}\n\n"
-            
-            # 添加关于PDF必要性或已上传PDF的说明
-            if not has_uploaded_pdfs:
-                system_content += """IMPORTANT: The user has not uploaded the actual PDF of this paper yet. You should inform them that while you can answer general questions based on the title, authors, and abstract, you need the PDF to be uploaded to provide detailed analysis of the paper's methodology, results, figures, tables, or specific sections. Encourage them to use the 'Upload PDF' button to get more comprehensive assistance."""
-            else:
-                if len(uploaded_filenames) == 1:
-                    system_content += f"The user has uploaded the PDF of this paper: {uploaded_filenames[0]}, so you can provide detailed answers about its content."
-                else:
-                    system_content += f"The user has uploaded {len(uploaded_filenames)} PDFs: {', '.join(uploaded_filenames)}. You can provide detailed answers about the content of any of these documents."
         
         # For PDF-based chat, add instructions for using context
         if has_uploaded_pdfs:
@@ -336,7 +320,7 @@ class ChatService:
             else:
                 system_content += f"\nYou have been provided with relevant context from {len(uploaded_filenames)} uploaded PDF documents: {', '.join(uploaded_filenames)}. When answering questions, use the most relevant information from any of these documents. If asked about a specific document, focus on that one. If the answer cannot be fully found in the provided context, say so clearly."
         else:
-            system_content += "\nNo PDF has been uploaded yet. You should encourage the user to upload a PDF to get detailed answers to their questions about academic papers."
+            system_content += "\nNo PDF has been uploaded yet. You should encourage the user to upload a PDF to get detailed answers to their questions."
         
         # Format messages for API, starting with system message
         api_messages = [{"role": "system", "content": system_content}]
@@ -353,17 +337,20 @@ class ChatService:
         
         return api_messages
     
-    async def generate_response(self, chat_id: str, query: str, paper: Optional[Paper] = None) -> AsyncGenerator[Tuple[str, bool], None]:
+    async def generate_response(self, chat_id: str, query: str) -> AsyncGenerator[Tuple[str, bool], None]:
         """
         Generate a response to a user query, with RAG if a PDF is attached
         
         Args:
             chat_id: Chat session ID
             query: User query
-            paper: Optional paper object for paper-specific context
             
         Returns:
             AsyncGenerator that yields (content_chunk, is_done) tuples
+            
+        Note:
+            此方法已简化，移除了paper参数，不再处理特定研究论文的元数据。
+            现在仅支持通用的PDF文档提问，而不区分是否为研究论文。
         """
         if chat_id not in self.active_chats:
             logger.error(f"Chat session not found: {chat_id}")
@@ -391,7 +378,7 @@ class ChatService:
                 )
                 
                 # Format messages with the retrieved context
-                api_messages = await self._format_messages_for_api(chat_id, paper)
+                api_messages = await self._format_messages_for_api(chat_id)
                 
                 # Add the retrieved context to the last user message
                 if relevant_chunks:
@@ -412,33 +399,40 @@ class ChatService:
             except Exception as e:
                 logger.error(f"Error performing RAG for chat {chat_id}: {str(e)}")
                 # Fall back to regular message formatting without RAG
-                api_messages = await self._format_messages_for_api(chat_id, paper)
+                api_messages = await self._format_messages_for_api(chat_id)
         else:
             # Regular message formatting without RAG
-            api_messages = await self._format_messages_for_api(chat_id, paper)
+            api_messages = await self._format_messages_for_api(chat_id)
         
         # Generate response from LLM
         assistant_response = ""
         try:
-            stream_response = await llm_service.client.chat.completions.create(
-                model=llm_service.conversation_model,
+            # 直接使用llm_service的流式响应
+            stream_response = await llm_service.get_conversation_completion(
                 messages=api_messages,
                 temperature=llm_service.conversation_temperature,
-                max_tokens=llm_service.max_tokens,
-                stream=True
+                max_tokens=llm_service.max_tokens
             )
             
+            if not stream_response:
+                error_msg = "Sorry, I couldn't generate a response at this time."
+                self.add_message(chat_id, "assistant", error_msg)
+                yield error_msg, True
+                return
+            
+            # 处理流式响应的每个块
             async for chunk in stream_response:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     assistant_response += content
+                    # 立即发送每个token
                     yield content, False
             
-            # Add assistant response to chat history
+            # 完成后添加到聊天历史
             if assistant_response:
                 self.add_message(chat_id, "assistant", assistant_response)
                 
-            # Send final chunk
+            # 发送结束标志
             yield "", True
                 
         except Exception as e:
