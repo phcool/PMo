@@ -8,6 +8,8 @@ from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 
 from app.services.llm_service import llm_service
 from app.services.pdf_service import pdf_service
+from app.services.vector_search_service import vector_search_service
+from app.services.db_service import db_service
 # Paper model不再需要导入，因为我们简化了聊天功能，移除了特定研究论文的元数据处理
 
 logger = logging.getLogger(__name__)
@@ -360,12 +362,61 @@ class ChatService:
         # 更新会话活动时间
         self._update_session_activity(chat_id)
         
-        # Add user message to chat history
-        self.add_message(chat_id, "user", query)
+        # 检查是否是搜索模式查询
+        is_search_mode = query.startswith("[SEARCH]")
+        
+        # 如果是搜索模式，去掉[SEARCH]前缀
+        if is_search_mode:
+            original_query = query[8:].strip()  # 去掉[SEARCH]和可能的空格
+            # 保存未修改的用户查询到历史记录
+            self.add_message(chat_id, "user", original_query)
+            logger.info(f"SEARCH MODE: Chat {chat_id} using search mode with query: '{original_query}'")
+        else:
+            # 常规查询，直接添加到历史记录
+            self.add_message(chat_id, "user", query)
+            original_query = query
         
         # 检查会话是否有上传文件
         chat_data = self.active_chats[chat_id]
         has_uploaded_pdfs = "files" in chat_data and chat_data["files"] or chat_data.get("file_path")
+        
+        # 使用 vector_search_service 获取相关论文元数据（仅搜索模式）
+        paper_metadata = ""
+        if is_search_mode:
+            try:
+                # 获取与查询相关的前5篇论文ID
+                paper_ids = await vector_search_service.search(original_query, k=5)
+                
+                if paper_ids:
+                    # 获取论文详细信息
+                    related_papers = []
+                    for paper_id in paper_ids:
+                        paper = await db_service.get_paper_by_id(paper_id)
+                        if paper:
+                            related_papers.append(paper)
+                    
+                    # 构建论文元数据文本
+                    if related_papers:
+                        paper_metadata = "You MUST analyze the following specific papers from my search results:\n\n"
+                        for i, paper in enumerate(related_papers, 1):
+                            # 构建论文元数据，仅保留必要信息给AI
+                            paper_metadata += f"Paper {i}: \"{paper.title}\"\n"
+                            paper_metadata += f"Authors: {', '.join(paper.authors)}\n"
+                            paper_metadata += f"Categories: {', '.join(paper.categories)}\n"
+                            if paper.abstract:
+                                # 限制摘要长度，最多显示500个字符
+                                abstract = paper.abstract[:500]
+                                if len(paper.abstract) > 500:
+                                    abstract += "..."
+                                paper_metadata += f"Abstract: {abstract}\n"
+                            paper_metadata += "\n"
+                        
+                        logger.info(f"Found {len(related_papers)} related papers for search query: '{original_query}'")
+                    else:
+                        logger.info(f"No related papers found for search query: '{original_query}'")
+            except Exception as e:
+                logger.error(f"Error searching for related papers: {str(e)}")
+                # 在发生错误时不阻止继续处理，只记录错误
         
         # If there's a PDF, use RAG
         if has_uploaded_pdfs:
@@ -373,7 +424,7 @@ class ChatService:
                 # Retrieve relevant chunks from the PDFs
                 relevant_chunks = await pdf_service.query_similar_chunks(
                     chat_id, 
-                    query, 
+                    original_query,  # 使用不带前缀的查询
                     top_k=self.max_chunks_per_query
                 )
                 
@@ -386,27 +437,154 @@ class ChatService:
                     last_message_idx = len(api_messages) - 1
                     
                     # Create a new message with context
-                    enhanced_query = f"""
-                    {query}
-                    
-                    Here is some relevant content from the PDFs:
-                    ---
-                    {context_text}
-                    ---
-                    """
+                    if is_search_mode:
+                        # 搜索模式下添加更多的指导，包括论文元数据
+                        enhanced_query = f"""
+                        {original_query}
+                        
+                        When analyzing these papers:
+                        1. Begin by stating "Based on my search, I found several relevant papers that address your query."
+                        2. You MUST analyze EACH of the specific papers provided below, individually and in detail:
+                           - For EACH paper, start with "Paper X: [Title]" as a heading (where X is the number and [Title] is the exact paper title)
+                           - Summarize its key methods and findings
+                           - Explain specifically how it relates to the query
+                           - Highlight any notable strengths or limitations
+                        3. After analyzing each paper individually, identify any contradictions or complementary information between them
+                        4. Conclude with a synthesis of the key insights
+                        
+                        IMPORTANT: Only analyze the specific papers provided in this prompt. Do NOT substitute them with papers from your general knowledge.
+                        
+                        The paper data is already displayed to the user, so don't include raw paper details like URLs or full metadata.
+                        Even if PDF files are not available, you should still provide a comprehensive analysis based on the available metadata.
+                        DO NOT mention the lack of PDF files or suggest uploading PDFs in your response.
+                        
+                        {paper_metadata}
+                        
+                        Here is also some relevant content from the PDFs you've uploaded:
+                        ---
+                        {context_text}
+                        ---
+                        """
+                    else:
+                        # 常规对话模式
+                        enhanced_query = f"""
+                        {original_query}
+                        
+                        Here is some relevant content from the PDFs:
+                        ---
+                        {context_text}
+                        ---
+                        """
                     
                     api_messages[last_message_idx]["content"] = enhanced_query
             except Exception as e:
                 logger.error(f"Error performing RAG for chat {chat_id}: {str(e)}")
                 # Fall back to regular message formatting without RAG
                 api_messages = await self._format_messages_for_api(chat_id)
+                
+                # 如果是搜索模式，添加论文元数据到最后一条用户消息
+                if is_search_mode and paper_metadata and len(api_messages) > 0:
+                    last_message_idx = len(api_messages) - 1
+                    api_messages[last_message_idx]["content"] = f"""
+                    {original_query}
+                    
+                    When analyzing these papers:
+                    1. Begin by stating "Based on my search, I found several relevant papers that address your query."
+                    2. You MUST analyze EACH of the specific papers provided below, individually and in detail:
+                       - For EACH paper, start with "Paper X: [Title]" as a heading (where X is the number and [Title] is the exact paper title)
+                       - Summarize its key methods and findings
+                       - Explain specifically how it relates to the query
+                       - Highlight any notable strengths or limitations
+                    3. After analyzing each paper individually, identify any contradictions or complementary information between them
+                    4. Conclude with a synthesis of the key insights
+                    
+                    IMPORTANT: Only analyze the specific papers provided in this prompt. Do NOT substitute them with papers from your general knowledge.
+                    
+                    The paper data is already displayed to the user, so don't include raw paper details like URLs or full metadata.
+                    Even if PDF files are not available, you should still provide a comprehensive analysis based on the available metadata.
+                    DO NOT mention the lack of PDF files or suggest uploading PDFs in your response.
+                    
+                    {paper_metadata}
+                    """
         else:
             # Regular message formatting without RAG
             api_messages = await self._format_messages_for_api(chat_id)
+            
+            # 如果是搜索模式添加特殊指导和论文元数据
+            if is_search_mode:
+                last_message_idx = len(api_messages) - 1
+                
+                # 构建带有论文元数据的搜索提示词
+                search_prompt = f"""
+                {original_query}
+                
+                When analyzing these papers:
+                1. Begin by stating "Based on my search, I found several relevant papers that address your query."
+                2. You MUST analyze EACH of the specific papers provided below, individually and in detail:
+                   - For EACH paper, start with "Paper X: [Title]" as a heading (where X is the number and [Title] is the exact paper title)
+                   - Summarize its key methods and findings
+                   - Explain specifically how it relates to the query
+                   - Highlight any notable strengths or limitations
+                3. After analyzing each paper individually, identify any contradictions or complementary information between them
+                4. Conclude with a synthesis of the key insights
+
+                IMPORTANT: Only analyze the specific papers provided in this prompt. Do NOT substitute them with papers from your general knowledge.
+                
+                The paper data is already displayed to the user, so don't include raw paper details like URLs or full metadata.
+                Even if PDF files are not available, you should still provide a comprehensive analysis based on the available metadata.
+                DO NOT mention the lack of PDF files or suggest uploading PDFs in your response.
+                """
+                
+                # 如果有找到相关论文，添加论文元数据
+                # 不再添加paper_metadata到提示中，因为前端已经单独显示
+                # if paper_metadata:
+                #     search_prompt += f"\n\n{paper_metadata}"
+                
+                # 强制添加paper_metadata，确保AI分析这些特定论文
+                if paper_metadata:
+                    search_prompt += f"\n\n{paper_metadata}"
+                
+                api_messages[last_message_idx]["content"] = search_prompt
         
         # Generate response from LLM
         assistant_response = ""
         try:
+            # 如果有论文链接但没有PDF，添加友好提示
+            if is_search_mode and paper_metadata and not has_uploaded_pdfs:
+                # 在最后一条用户消息前添加关于PDF缺失的解释
+                last_message_idx = len(api_messages) - 1
+                
+                # 获取查询的内容
+                query_content = api_messages[last_message_idx]["content"]
+                
+                # 修改查询内容以包含对PDF缺失的说明
+                pdf_notice = """
+                Please analyze the papers based on their metadata (titles, authors, abstracts, etc.). Even without the full PDF files, provide a detailed analysis of each paper and offer comprehensive insights.
+                
+                Note: Do not mention the lack of PDFs or suggest uploading PDF files in your response. Proceed directly with analyzing the papers based on available metadata.
+                
+                """
+                
+                api_messages[last_message_idx]["content"] = pdf_notice + query_content
+            
+            # 如果是搜索模式且找到了论文，首先发送论文数据
+            if is_search_mode and related_papers:
+                # 构建论文数据，使用特殊格式便于前端解析和渲染
+                papers_data = []
+                for paper in related_papers:
+                    paper_info = {
+                        "title": paper.title,
+                        "authors": paper.authors,
+                        "categories": paper.categories,
+                        "url": paper.pdf_url if paper.pdf_url else ""
+                    }
+                    papers_data.append(paper_info)
+                
+                # 将论文数据转换为JSON字符串
+                papers_json = json.dumps({"type": "papers_data", "papers": papers_data})
+                # 返回一个特殊标记，前端可以通过检测这个标记来解析和显示相关论文
+                yield f"<!-- PAPERS_DATA:{papers_json} -->", False
+            
             # 直接使用llm_service的流式响应
             stream_response = await llm_service.get_conversation_completion(
                 messages=api_messages,

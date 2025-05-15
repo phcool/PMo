@@ -206,11 +206,23 @@ export default defineComponent({
     const loadRecommendedPapers = async () => {
       try {
         isLoadingRecommended.value = true;
-        recommendedPapers.value = await api.getRecommendedPapers(limit.value);
-        recommendedOffset.value = recommendedPapers.value.length;
-        hasMoreRecommended.value = recommendedPapers.value.length === limit.value;
-      } catch (error) { console.error('Error loading recommended papers:', error); recommendedPapers.value = []; }
-      finally { isLoadingRecommended.value = false; }
+        const response = await api.getRecommendedPapers(limit.value);
+        if (Array.isArray(response)) {
+          recommendedPapers.value = response;
+          recommendedOffset.value = response.length;
+          hasMoreRecommended.value = response.length === limit.value;
+        } else {
+          console.warn('Received non-array response for recommended papers:', response);
+          recommendedPapers.value = [];
+          hasMoreRecommended.value = false;
+        }
+      } catch (error) { 
+        console.error('Error loading recommended papers:', error); 
+        recommendedPapers.value = []; 
+        hasMoreRecommended.value = false;
+      } finally { 
+        isLoadingRecommended.value = false; 
+      }
     };
 
     // Load more recent papers
@@ -230,11 +242,20 @@ export default defineComponent({
       try {
         isLoadingMoreRecommended.value = true;
         const moreRecommendedPapers = await api.getRecommendedPapers(limit.value, recommendedOffset.value);
-        recommendedPapers.value = [...recommendedPapers.value, ...moreRecommendedPapers];
-        recommendedOffset.value += moreRecommendedPapers.length;
-        hasMoreRecommended.value = moreRecommendedPapers.length === limit.value;
-      } catch (error) { console.error('Error loading more recommended papers:', error); }
-      finally { isLoadingMoreRecommended.value = false; }
+        if (Array.isArray(moreRecommendedPapers)) {
+          recommendedPapers.value = [...recommendedPapers.value, ...moreRecommendedPapers];
+          recommendedOffset.value += moreRecommendedPapers.length;
+          hasMoreRecommended.value = moreRecommendedPapers.length === limit.value;
+        } else {
+          console.warn('Received non-array response for recommended papers:', moreRecommendedPapers);
+          hasMoreRecommended.value = false;
+        }
+      } catch (error) { 
+        console.error('Error loading more recommended papers:', error);
+        hasMoreRecommended.value = false; 
+      } finally { 
+        isLoadingMoreRecommended.value = false; 
+      }
     };
 
     // --- Define Lifecycle Hooks and Watchers Last ---

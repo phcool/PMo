@@ -30,6 +30,9 @@
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
+      <router-link :to="{ name: 'chat' }" class="action-button chat-button">
+        Chat
+      </router-link>
     </div>
   </div>
 </template>
@@ -217,5 +220,14 @@ export default defineComponent({
 
 .action-button:hover {
   background-color: #e0e0e0;
+}
+
+.chat-button {
+  background-color: #3f51b5;
+  color: white;
+}
+
+.chat-button:hover {
+  background-color: #303f9f;
 }
 </style> 

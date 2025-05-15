@@ -21,9 +21,9 @@
   </div>
 </template>
 
-<script>
+<script lang="ts">
 import { defineComponent, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, RouteLocationNormalized } from 'vue-router'
 import userService from './services/user'
 import api from './services/api'
 
@@ -34,7 +34,7 @@ export default defineComponent({
     const router = useRouter();
     
     // Save scroll position before navigation
-    const saveScrollPositionBeforeLeave = (to, from) => {
+    const saveScrollPositionBeforeLeave = (to: RouteLocationNormalized, from: RouteLocationNormalized): void => {
       // Save current page scroll position
       sessionStorage.setItem(
         `scrollPos-${from.fullPath}`,
@@ -43,7 +43,7 @@ export default defineComponent({
     };
 
     // Update user visit records
-    const updateUserVisit = async () => {
+    const updateUserVisit = async (): Promise<void> => {
       try {
         // Ensure user ID is initialized
         const userId = userService.getUserId();

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, Query, Depends, Path, Header
+from fastapi import APIRouter, HTTPException, Query, Depends, Path, Header, Body
 from typing import List, Optional, Dict, Any
 import logging
 from datetime import datetime
+import json
 
 from app.models.paper import Paper, PaperResponse
 from app.services.db_service import db_service
@@ -79,3 +80,48 @@ async def get_recommended_papers(
         recommended_papers = await db_service.get_random_papers_by_category(categories=popular_categories, limit=limit, offset=offset)
         
     return recommended_papers 
+
+@router.post("/search")
+async def search_papers(
+    query: Dict[str, str] = Body(..., description="Search query"),
+    limit: int = Query(5, description="Maximum number of results", ge=1, le=20)
+):
+    """
+    Search for papers directly based on a query string
+    
+    Returns a list of relevant papers that match the query
+    """
+    try:
+        # 从请求体中获取查询文本
+        query_text = query.get("query", "")
+        
+        if not query_text or len(query_text.strip()) == 0:
+            return {"papers": []}
+            
+        logger.info(f"Paper search request with query: '{query_text}'")
+        
+        # 使用向量搜索获取相关论文
+        paper_ids = await vector_search_service.search(query_text, k=limit)
+        
+        if not paper_ids:
+            logger.info(f"No papers found for query: '{query_text}'")
+            return {"papers": []}
+        
+        # 获取论文详细信息
+        papers = []
+        for paper_id in paper_ids:
+            paper = await db_service.get_paper_by_id(paper_id)
+            if paper:
+                papers.append({
+                    "title": paper.title,
+                    "authors": paper.authors,
+                    "categories": paper.categories,
+                    "url": paper.pdf_url or ""
+                })
+        
+        logger.info(f"Found {len(papers)} papers for query: '{query_text}'")
+        return {"papers": papers}
+        
+    except Exception as e:
+        logger.error(f"Error searching for papers: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error searching for papers: {str(e)}") 

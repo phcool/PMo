@@ -22,16 +22,21 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    // 确保生成的资产使用绝对路径
     assetsInlineLimit: 4096,
     cssCodeSplit: true,
     sourcemap: false,
-    minify: 'terser',
+    // 使用更简单的哈希生成方式，使文件更易于后端识别
     rollupOptions: {
       output: {
-        manualChunks: undefined,
-        chunkFileNames: 'assets/[name]-[hash].js',
-        entryFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]'
+        manualChunks: {
+          'vendor': ['vue', 'vue-router', 'axios'],
+          'ui': ['marked', 'dompurify', 'vue-toastification']
+        },
+        // 使用更可预测的文件名格式
+        entryFileNames: 'assets/[name].[hash].js',
+        chunkFileNames: 'assets/[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash].[ext]'
       }
     }
   }

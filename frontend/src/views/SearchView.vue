@@ -63,6 +63,9 @@
               <router-link v-if="paper.paper_id" :to="{ name: 'paper-detail', params: { id: paper.paper_id }}" class="paper-button">
                 Details
               </router-link>
+              <router-link :to="{ name: 'chat' }" class="paper-button chat-button">
+                Chat
+              </router-link>
             </div>
           </div>
         </div>
@@ -372,5 +375,16 @@ export default {
 
 .pdf-link {
   color: #e91e63 !important;
+}
+
+.chat-button {
+  background-color: #3f51b5;
+  color: white !important;
+  border-color: #3f51b5;
+}
+
+.chat-button:hover {
+  background-color: #303f9f;
+  border-color: #303f9f;
 }
 </style> 

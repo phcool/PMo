@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from dotenv import load_dotenv
 import logging
 import pathlib
@@ -87,34 +87,54 @@ async def serve_index():
 # Handle SPA frontend routing - ensure API requests are not intercepted
 @app.get("/{full_path:path}", include_in_schema=False)
 async def serve_spa(request: Request, full_path: str):
-    # API requests should not reach here because we've mounted the API sub-application
+    # API请求不应该到达这里，因为我们已经挂载了API子应用
     if request.url.path.startswith("/api/"):
         logger.warning(f"API request reached wildcard route: {request.url.path}")
         return {"error": "API route does not exist", "path": request.url.path}
     
-    # 如果是以assets开头的请求，尝试提供静态文件
+    # 如果是assets目录下的请求，尝试提供静态文件
     if full_path.startswith("assets/"):
+        # 尝试使用精确路径
         requested_file = os.path.join(FRONTEND_DIST_DIR, full_path)
         if os.path.exists(requested_file) and os.path.isfile(requested_file):
             logger.info(f"Serving asset file: {full_path}")
             return FileResponse(requested_file)
-            
-        # 如果找不到精确名称的资源文件，尝试通过前缀匹配
-        asset_dir = os.path.dirname(requested_file)
-        filename_prefix = os.path.basename(requested_file).split('-')[0]
         
-        if os.path.exists(asset_dir) and os.path.isdir(asset_dir):
+        # 如果找不到精确的文件，尝试基于前缀匹配
+        asset_dir = os.path.dirname(requested_file)
+        if not os.path.exists(asset_dir):
+            logger.warning(f"Asset directory not found: {asset_dir}")
+            return HTMLResponse(status_code=404, content="Asset directory not found")
+            
+        try:
+            # 获取文件名的基本部分（没有哈希和扩展名）
+            filename_parts = os.path.basename(requested_file).split('.')
+            name_part = filename_parts[0].split('-')[0]  # 例如从 'index-99db0f8c.js' 获取 'index'
+            ext_part = filename_parts[-1]  # 获取扩展名
+            
+            logger.info(f"Looking for asset with name: {name_part} and extension: {ext_part}")
+            
+            # 在assets目录中找到所有匹配前缀和扩展名的文件
             for file in os.listdir(asset_dir):
-                if file.startswith(filename_prefix):
-                    logger.info(f"Found alternative asset file: {file} for {full_path}")
+                file_parts = file.split('.')
+                if len(file_parts) > 1 and file_parts[-1] == ext_part and file.startswith(name_part):
+                    logger.info(f"Found matching asset: {file} for request: {full_path}")
                     return FileResponse(os.path.join(asset_dir, file))
+        except Exception as e:
+            logger.error(f"Error finding matching asset: {e}")
     
-    # Check if the requested file exists directly (e.g., favicon.ico)
+    # PDF.js映射文件处理
+    if full_path.endswith('.map'):
+        # 忽略源映射文件请求，直接返回空内容
+        # 这些仅用于开发调试，不影响生产使用
+        return Response(content="", media_type="application/json")
+    
+    # 检查请求的文件是否直接存在（例如favicon.ico）
     requested_file = os.path.join(FRONTEND_DIST_DIR, full_path)
     if os.path.exists(requested_file) and os.path.isfile(requested_file):
         return FileResponse(requested_file)
     
-    # Otherwise return index.html (SPA routing)
+    # 否则返回index.html（SPA路由）
     index_file = os.path.join(FRONTEND_DIST_DIR, "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)

@@ -7,18 +7,30 @@
   <title>DL Paper Monitor</title>
   <meta name="description" content="A tool for monitoring and searching deep learning research papers">
   <!-- PDF.js library -->
-  <script src="/pdfjs/pdf.js"></script>
   <script>
-    // Set up PDF.js worker
+    // 动态加载PDF.js以提高可靠性
     window.addEventListener('load', function() {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.js';
-      }
+      // 尝试加载PDF.js库
+      var pdfScript = document.createElement('script');
+      pdfScript.src = '/pdfjs/pdf.js';
+      pdfScript.onerror = function() {
+        console.warn('Failed to load PDF.js library. PDF viewing may not work properly.');
+      };
+      pdfScript.onload = function() {
+        // 成功加载后配置worker
+        if (window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.js';
+        }
+      };
+      document.head.appendChild(pdfScript);
     });
   </script>
 </head>
 <body>
   <div id="app"></div>
-  <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/main.ts"></script>
+  <noscript>
+    <strong>We're sorry but this application doesn't work properly without JavaScript enabled. Please enable it to continue.</strong>
+  </noscript>
 </body>
 </html> 
