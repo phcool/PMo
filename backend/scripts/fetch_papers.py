@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 import aiohttp  # For async HTTP requests
 import oss2     # For Alibaba Cloud OSS
+import re # For more robust ID parsing
 
 # Add the parent directory to the path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -86,48 +87,75 @@ async def download_and_upload_pdf(http_session, paper_obj, oss_bucket_client):
         return False
 
     pdf_url = paper_obj.pdf_url
-    # Ensure the URL is a direct PDF link, common for arxiv.Result.pdf_url
-    # If it were an abstract link, it might need transformation:
-    # if "arxiv.org/abs/" in pdf_url:
-    #     pdf_url = pdf_url.replace("/abs/", "/pdf/") + ".pdf"
-    # elif not pdf_url.lower().endswith('.pdf'):
-    #     pdf_url += ".pdf" # Heuristic if it's like /pdf/{id}
-
-    # Sanitize paper_id for use in path (though arXiv IDs are usually safe)
-    sanitized_paper_id = paper_obj.paper_id.replace('/', '_').replace(':', '_')
-    object_key = f"papers/{sanitized_paper_id}/{sanitized_paper_id}.pdf"
+    original_paper_id = paper_obj.paper_id
     
-    logger.info(f"Attempting to download PDF for {paper_obj.paper_id} from {pdf_url}")
+    # Sanitize the original_paper_id to be used as the filename part
+    # Replace slashes, colons, and periods (except the one before version number if any) with underscores for the filename
+    # For example, 2303.12345 -> 2303_12345.pdf or cs/0701123 -> cs_0701123.pdf
+    # Keep the version part like v1, v2 if present, by temporarily replacing the last dot before version
+    temp_id_for_filename = original_paper_id
+    if 'v' in original_paper_id.split('.')[-1] and original_paper_id.count('.') > 0:
+        last_dot_index = original_paper_id.rfind('.')
+        temp_id_for_filename = original_paper_id[:last_dot_index] + '_' + original_paper_id[last_dot_index+1:]
+    
+    sanitized_file_name_base = re.sub(r'[/:.]', '_', temp_id_for_filename.replace('.pdf','')) 
+    sanitized_file_name = f"{sanitized_file_name_base}.pdf"
+
+    year_prefix = ""
+    month_prefix = ""
+
+    # Regex for YYMM.xxxxx format (e.g., 2303.12345, 0703.12345)
+    match_new = re.match(r'^(\d{2})(\d{2})\.\d+', original_paper_id)
+    # Regex for arch/YYMMNNN format (e.g., astro-ph/0601001, cs.AI/0704.1234)
+    match_old_style_category = re.match(r'^[a-zA-Z\-]+(?:\.[a-zA-Z]{2})?/(\d{2})(\d{2})\d+', original_paper_id)
+    # Regex for just YYMMNNN format (e.g. 0704001, which Arxiv API might return as id for old papers)
+    match_old_no_category = re.match(r'^(\d{2})(\d{2})\d{3,}', original_paper_id) 
+
+    if match_new:
+        year_prefix = match_new.group(1)
+        month_prefix = match_new.group(2)
+    elif match_old_style_category:
+        year_prefix = match_old_style_category.group(1)
+        month_prefix = match_old_style_category.group(2)
+    elif match_old_no_category:
+        year_prefix = match_old_no_category.group(1)
+        month_prefix = match_old_no_category.group(2)
+
+    if year_prefix and month_prefix:
+        object_key = f"papers/{year_prefix}/{month_prefix}/{sanitized_file_name}"
+    else:
+        logger.warning(f"Could not parse year/month from paper ID '{original_paper_id}'. Using fallback OSS path: papers/unknown_date_format/{sanitized_file_name}")
+        object_key = f"papers/unknown_date_format/{sanitized_file_name}"
+    
+    logger.info(f"Attempting to download PDF for {original_paper_id} from {pdf_url}. OSS key: {object_key}")
 
     try:
         async with http_session.get(pdf_url) as response:
             if response.status != 200:
-                logger.error(f"Failed to download PDF for {paper_obj.paper_id}. Status: {response.status}. URL: {pdf_url}")
+                logger.error(f"Failed to download PDF for {original_paper_id}. Status: {response.status}. URL: {pdf_url}")
                 return False
             pdf_content = await response.read()
-            logger.info(f"Successfully downloaded PDF for {paper_obj.paper_id} ({len(pdf_content)} bytes)")
+            logger.info(f"Successfully downloaded PDF for {original_paper_id} ({len(pdf_content)} bytes)")
 
         if oss_bucket_client:
             try:
                 oss_bucket_client.put_object(object_key, pdf_content)
-                # Construct the full OSS URL for logging or potential future storage
-                oss_pdf_url = f"https://{OSS_BUCKET_NAME}.{OSS_ENDPOINT}/{object_key}" # Note: Endpoint might not always prefix bucket for URL
-                logger.info(f"Successfully uploaded PDF for {paper_obj.paper_id} to OSS: {oss_pdf_url}")
-                # Optionally, update the paper object or database with the OSS path/URL here
-                # e.g., await db_service.update_paper_oss_url(paper_obj.paper_id, oss_pdf_url)
+                oss_pdf_url = f"https://{OSS_BUCKET_NAME}.{OSS_ENDPOINT}/{object_key}" 
+                logger.info(f"Successfully uploaded PDF for {original_paper_id} to OSS: {oss_pdf_url}")
+                # Optionally, update db_service.update_paper_oss_url(original_paper_id, oss_pdf_url)
                 return True
             except oss2.exceptions.OssError as e:
-                logger.error(f"Failed to upload PDF for {paper_obj.paper_id} to OSS. Object key: {object_key}. Error: {e}")
+                logger.error(f"Failed to upload PDF for {original_paper_id} to OSS. Object key: {object_key}. Error: {e}")
                 return False
         else:
-            logger.warning(f"OSS bucket not configured for paper {paper_obj.paper_id}. PDF downloaded but not uploaded.")
-            return False # Or True if local download is sufficient without OSS
+            logger.warning(f"OSS bucket not configured for paper {original_paper_id}. PDF downloaded but not uploaded.")
+            return False
 
     except aiohttp.ClientError as e:
-        logger.error(f"aiohttp.ClientError downloading PDF for {paper_obj.paper_id} from {pdf_url}. Error: {e}")
+        logger.error(f"aiohttp.ClientError downloading PDF for {original_paper_id} from {pdf_url}. Error: {e}")
         return False
     except Exception as e:
-        logger.error(f"Unexpected error during PDF processing for {paper_obj.paper_id}. Error: {e}", exc_info=True)
+        logger.error(f"Unexpected error during PDF processing for {original_paper_id}. Error: {e}", exc_info=True)
         return False
 
 async def fetch_papers_batch(categories, skip, max_results):
