@@ -30,15 +30,16 @@
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
-      <router-link :to="{ name: 'chat' }" class="action-button chat-button">
-        Chat
-      </router-link>
+      <button @click="handleChatClick" class="action-button chat-button" :disabled="isChatLoading">
+        {{ isChatLoading ? 'Loading...' : 'Chat' }}
+      </button>
     </div>
   </div>
 </template>
 
 <script>
-import { defineComponent, computed } from 'vue'
+import { defineComponent, computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { getCategoryLabel } from '../types/paper'
 import api from '../services/api'
 
@@ -53,6 +54,9 @@ export default defineComponent({
   },
   
   setup(props) {
+    const router = useRouter();
+    const isChatLoading = ref(false);
+
     // Format the authors list (show first 3 names, then "et al" if more)
     const authorText = computed(() => {
       const authors = props.paper.authors;
@@ -99,13 +103,66 @@ export default defineComponent({
         }
       }, 0);
     };
+
+    const handleChatClick = async () => {
+      isChatLoading.value = true;
+      try {
+        // Step 1: Get or create a chat session
+        // Option A: Always create a new session for simplicity when starting chat from paper card
+        // Option B: Try to reuse an existing session (e.g., from a Pinia store)
+        // For this example, let's use Option A for directness, linking paperId if backend supports it.
+        
+        // const currentChatId = chatStore.chatId; // If using a store
+        let chatId = null;
+        
+        // If you have a store and want to reuse an active session, you might check chatStore.activeChatId
+        // For now, let's assume we always create or ensure a session when clicking this button.
+        // The createChatSession can be called without paperId if we are just ensuring a session exists,
+        // or with paperId if the backend logic for createChatSession is to link it immediately.
+        // Based on api.ts, createChatSession can take an optional paperId.
+        // However, the new flow is to load paper into an existing/new session.
+
+        // Let's get a session ID. If you manage currentChatId in a store, use that.
+        // Otherwise, create one. For simplicity, we create one. If you have a global currentChatId, use it.
+        // To simplify, let's assume we don't have a global active chat ID from the paper card context
+        // and we want to initiate a new chat flow or use a very specific one.
+
+        // Simpler approach: Create a new session, then load the paper into it.
+        // This decouples it from any potentially pre-existing unrelated chat session.
+        const sessionResponse = await api.createChatSession(); // Create a generic session first
+        chatId = sessionResponse.chat_id;
+
+        if (!chatId) {
+          throw new Error('Failed to create or retrieve chat session.');
+        }
+
+        // Step 2: Load the paper from OSS into this chat session
+        await api.loadPaperFromOSS(chatId, props.paper.paper_id);
+        
+        // Optionally, update chat store with the new chatId if you are using one
+        // chatStore.setChatId(chatId); 
+
+        // Step 3: Navigate to the chat view with the chatId
+        // The ChatView will then be responsible for fetching messages and files for this session
+        router.push({ name: 'chat', params: { chatId: chatId } });
+
+      } catch (error) {
+        console.error('Error handling chat click:', error);
+        // Show an error message to the user, e.g., using a toast notification library
+        alert('Failed to start chat with the paper. Please try again.\nError: ' + (error.response?.data?.detail || error.message));
+      } finally {
+        isChatLoading.value = false;
+      }
+    };
     
     return {
       authorText,
       formattedDate,
       truncatedAbstract,
       getCategoryLabel,
-      recordView
+      recordView,
+      handleChatClick,
+      isChatLoading
     };
   }
 })
@@ -216,9 +273,17 @@ export default defineComponent({
   text-decoration: none;
   font-size: 0.9rem;
   transition: background-color 0.2s;
+  border: none; /* For button element */
+  cursor: pointer; /* For button element */
+  font-family: inherit; /* For button element */
 }
 
-.action-button:hover {
+.action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-button:hover:not(:disabled) {
   background-color: #e0e0e0;
 }
 
@@ -227,7 +292,7 @@ export default defineComponent({
   color: white;
 }
 
-.chat-button:hover {
+.chat-button:hover:not(:disabled) {
   background-color: #303f9f;
 }
 </style> 

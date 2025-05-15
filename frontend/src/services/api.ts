@@ -15,15 +15,21 @@ interface ChatResponseChunk {
  */
 interface ChatSessionResponse {
   chat_id: string;
+  // Optional: paper_id and created_at can be added if needed from your backend response model
+  // paper_id?: string;
+  // created_at?: string; 
 }
 
 /**
  * File upload response interface
  */
 interface FileUploadResponse {
-  success: boolean;
-  file_id: string;
-  file_name: string;
+  // Adjust based on your actual backend response for upload
+  id: string; // Assuming 'id' is the file_id
+  name: string;
+  size: number;
+  upload_time: string;
+  message?: string; 
 }
 
 /**
@@ -32,6 +38,8 @@ interface FileUploadResponse {
 interface ProcessingStatus {
   processing: boolean;
   file_name: string;
+  files_count?: number; // Added based on backend logic
+  error?: string; // To capture potential errors during processing
 }
 
 /**
@@ -39,6 +47,17 @@ interface ProcessingStatus {
  */
 interface UserPreferences {
   [key: string]: any;
+}
+
+/**
+ * Response from loading paper from OSS
+ */
+interface LoadPaperResponse {
+  message: string;
+  file_id: string;
+  filename: string;
+  size: number;
+  load_time: string; // ISO date string
 }
 
 /**
@@ -50,11 +69,13 @@ export interface IApiService {
   countPapers(): Promise<number>;
   fetchPapers(categories?: string[], maxResults?: number): Promise<{ count: number }>;
   searchPapers(searchRequest: SearchRequest): Promise<SearchResponse>;
-  chatWithPaper(paperId: string, data: { message: string, context_messages?: Array<{role: string, content: string}> }, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
+  // chatWithPaper method might be deprecated or refactored if using generic chat session flow
+  // chatWithPaper(paperId: string, data: { message: string, context_messages?: Array<{role: string, content: string}> }, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   createChatSession(paperId?: string): Promise<ChatSessionResponse>;
   uploadPdfToChat(chatId: string, file: File): Promise<FileUploadResponse>;
-  sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
-  endChatSession(chatId: string): Promise<any>;
+  loadPaperFromOSS(chatId: string, paperId: string): Promise<LoadPaperResponse>; // New method
+  sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<void>; // Return type changed to void as it handles chunks via callback
+  endChatSession(chatId: string): Promise<any>; // Consider a more specific response type if applicable
   getUserPreferences(): Promise<UserPreferences>;
   saveUserPreferences(preferences: UserPreferences): Promise<any>;
   saveSearchHistory(query: string): Promise<any>;
@@ -63,6 +84,7 @@ export interface IApiService {
   recordPaperView(paperId: string): Promise<any>;
   getUserPaperViews(limit?: number, days?: number): Promise<Array<{paper: Paper, view_count: number}>>;
   getProcessingStatus(chatId: string): Promise<ProcessingStatus>;
+  // Consider adding methods for getting session files, viewing files, deleting files if these are managed via API
 }
 
 /**
@@ -243,13 +265,33 @@ class ApiService implements IApiService {
           headers: {
             'Content-Type': 'multipart/form-data'
           },
-          timeout: 60000 // Longer timeout for file uploads
+          timeout: 120000 // Longer timeout for file uploads (e.g., 2 minutes)
         }
       );
       
+      return response.data; // Ensure this matches FileUploadResponse structure
+    } catch (error) {
+      console.error('Failed to upload PDF to chat:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Load a paper from OSS into a chat session
+   * @param chatId Chat session ID
+   * @param paperId Paper ID to load from OSS
+   * @returns Promise with load result
+   */
+  async loadPaperFromOSS(chatId: string, paperId: string): Promise<LoadPaperResponse> {
+    try {
+      const response = await this.api.post<LoadPaperResponse>(
+        `/api/chat/sessions/${chatId}/load-paper-from-oss`,
+        { paper_id: paperId } // Request body
+      );
       return response.data;
     } catch (error) {
-      console.error('Failed to upload PDF:', error);
+      console.error(`Failed to load paper ${paperId} from OSS for chat ${chatId}:`, error);
+      // Consider more specific error handling or re-throwing a custom error object
       throw error;
     }
   }
@@ -265,84 +307,77 @@ class ApiService implements IApiService {
     chatId: string,
     message: string,
     onChunk?: (chunk: string, isDone: boolean) => void
-  ): Promise<any> {
-    // If callback provided, use streaming
-    if (onChunk) {
-      try {
-        const response = await fetch(`/api/chat/sessions/${chatId}/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': userService.getUserId() || ''
-          },
-          body: JSON.stringify({ message })
-        });
+  ): Promise<void> { // Changed return type to void
+    if (!onChunk) {
+      // This case should ideally not happen if streaming is always expected.
+      // If non-streaming send is needed, create a separate method or handle it differently.
+      console.warn('sendChatMessage called without onChunk callback. This is a streaming API.');
+      // Fallback or error if non-streaming is not supported by this method directly.
+      // For now, let it proceed but it won't stream to the caller without onChunk.
+    }
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+      const response = await this.api.post(
+        `/api/chat/sessions/${chatId}/chat`,
+        { message }, 
+        {
+          responseType: 'stream',
+          timeout: 300000, // 5 minutes timeout for potentially long LLM responses
         }
+      );
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error('Stream reader not available');
-        }
+      // Process the stream
+      const reader = response.data.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        // Process stream data
-        while (true) {
-          const { value, done } = await reader.read();
-          
-          if (done) {
-            // Process final chunk
-            if (buffer) {
-              try {
-                const chunk = JSON.parse(buffer) as ChatResponseChunk;
-                onChunk(chunk.content, chunk.done);
-              } catch (e) {
-                console.error('Error parsing final chunk:', buffer);
-              }
-            }
-            break;
-          }
-
-          // Add data to buffer and process by line
-          buffer += decoder.decode(value, { stream: true });
-          
-          // Process data by line
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete last line
-          
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const chunk = JSON.parse(line) as ChatResponseChunk;
-                onChunk(chunk.content, chunk.done);
-                if (chunk.done) {
-                  return { success: true };
-                }
-              } catch (e) {
-                console.error('Error parsing chunk:', line);
-              }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) { // Process any remaining part of a chunk
+            try {
+              const chunkData = JSON.parse(buffer.trim()) as ChatResponseChunk;
+              if (onChunk) onChunk(chunkData.content, chunkData.done);
+            } catch (e) {
+              console.error('Error parsing final JSON chunk:', e, 'Buffer:', buffer.trim());
+              if (onChunk) onChunk('', true); // Signal done even on error to prevent hangs
             }
           }
+          if (onChunk) onChunk('', true); // Ensure done is always called
+          break;
         }
+
+        buffer += decoder.decode(value, { stream: true });
         
-        return { success: true };
-      } catch (error) {
-        console.error('Error in streaming chat:', error);
-        throw error;
+        // Process line by line (since chunks are newline-separated JSON)
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.substring(0, newlineIndex).trim();
+          buffer = buffer.substring(newlineIndex + 1);
+          if (line) {
+            try {
+              const chunkData = JSON.parse(line) as ChatResponseChunk;
+              if (onChunk) onChunk(chunkData.content, chunkData.done);
+              if (chunkData.done) {
+                // If a chunk signals done, we might want to stop processing further.
+                // However, the stream should naturally end when the server closes it.
+              }
+            } catch (e) {
+              console.error('Error parsing JSON chunk:', e, 'Line:', line);
+              // Optionally, handle malformed chunk, e.g., by notifying about an error
+            }
+          }
+        }
       }
-    } else {
-      // Non-streaming fallback
-      try {
-        const response = await this.api.post(`/api/chat/sessions/${chatId}/chat`, { message });
-        return response.data;
-      } catch (error) {
-        console.error('Failed to send chat message:', error);
-        throw error;
+    } catch (error) {
+      console.error('Failed to send chat message:', error);
+      if (onChunk) {
+        // Try to send an error message through the onChunk callback
+        // This depends on how the frontend handles error content
+        const errorMessage = error instanceof Error ? error.message : 'Failed to send message.';
+        onChunk(`Error: ${errorMessage}`, true); 
       }
+      throw error; // Re-throw to allow further error handling by the caller if needed
     }
   }
   
