@@ -43,6 +43,10 @@ class ChatResponseChunk:
             "done": self.done
         }, ensure_ascii=False)
 
+# Request model for loading paper from OSS
+class LoadPaperFromOSSRequest(BaseModel):
+    paper_id: str
+
 # Create a new chat session
 @router.post("/sessions", response_model=ChatSessionResponse)
 async def create_chat_session(
@@ -168,6 +172,95 @@ async def get_processing_status(
             status["files_count"] = files_count
     
     return status
+
+# Load a paper from OSS into the chat session
+@router.post("/sessions/{chat_id}/load-paper-from-oss")
+async def load_paper_from_oss(
+    chat_id: str = Path(..., description="Chat session ID"),
+    request_data: LoadPaperFromOSSRequest = Body(..., description="Paper ID to load from OSS")
+):
+    """
+    Download a paper's PDF from OSS, save it locally, and process it for the chat session.
+    This will add the paper to the session's list of usable documents for RAG.
+    """
+    paper_id = request_data.paper_id
+    if not paper_id:
+        raise HTTPException(status_code=400, detail="Paper ID must be provided.")
+
+    # Check if chat session exists
+    if chat_id not in chat_service.active_chats:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {chat_id} not found"
+        )
+
+    # Prevent loading if another file is already being processed for this session
+    current_processing_status = chat_service.is_processing_file(chat_id)
+    if current_processing_status.get("processing"):
+        raise HTTPException(
+            status_code=423, # Locked
+            detail=f"Another file ({current_processing_status.get('file_name', 'unknown')}) is already being processed for this session. Please wait."
+        )
+    
+    logger.info(f"API: Attempting to load paper {paper_id} from OSS for chat {chat_id}.")
+    
+    try:
+        success = await chat_service.load_paper_from_oss_for_session(chat_id, paper_id)
+        
+        if not success:
+            # The chat_service.load_paper_from_oss_for_session method updates processing_files on error
+            # We need to check the specific error if available from processing_files
+            processing_status = chat_service.is_processing_file(chat_id)
+            error_detail = processing_status.get("error", "Failed to load and process paper from OSS.")
+            
+            logger.error(f"API: Failed to load paper {paper_id} from OSS for chat {chat_id}. Detail: {error_detail}")
+            raise HTTPException(
+                status_code=500, # Or 422 if it's more a processing issue
+                detail=error_detail
+            )
+        
+        # If successful, retrieve file details
+        # The file is added to active_chats[chat_id]["files"] by process_pdf called within load_paper_from_oss_for_session
+        if chat_id in chat_service.active_chats and "files" in chat_service.active_chats[chat_id]:
+            session_files = chat_service.active_chats[chat_id]["files"]
+            if session_files:
+                latest_file_info = session_files[-1] # Assuming the latest processed file is the one from OSS
+                file_path = latest_file_info.get("file_path")
+                filename = latest_file_info.get("filename", f"{paper_id}.pdf")
+                file_id = str(uuid.uuid4()) # Generate a new ID for this file context
+                latest_file_info["id"] = file_id # Store it in the session data
+
+                file_size = 0
+                if file_path and os.path.exists(file_path):
+                    file_size = os.path.getsize(file_path)
+                
+                logger.info(f"API: Successfully loaded and processed paper {paper_id} from OSS into chat {chat_id}. File: {filename}, ID: {file_id}")
+                return {
+                    "message": f"Paper {paper_id} loaded successfully from OSS and processed.",
+                    "file_id": file_id,
+                    "filename": filename,
+                    "size": file_size,
+                    "load_time": datetime.now().isoformat()
+                }
+        
+        logger.warning(f"API: Paper {paper_id} loaded from OSS for chat {chat_id}, but file details not found in session after processing.")
+        # Fallback response if file details are somehow not available after supposedly successful processing
+        return {"message": f"Paper {paper_id} processed, but details could not be retrieved. Please check session files."}
+
+    except HTTPException:
+        raise # Re-throw known HTTP exceptions
+    except Exception as e:
+        logger.error(f"API: Unexpected error loading paper {paper_id} from OSS for chat {chat_id}: {e}", exc_info=True)
+        # Ensure processing status is cleared or marked as error by chat_service
+        chat_service.processing_files[chat_id] = {
+            "processing": False, 
+            "file_name": f"{paper_id}.pdf",
+            "error": f"Unexpected server error: {str(e)}"
+        }
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
 
 # Send message and get response
 @router.post("/sessions/{chat_id}/chat")
