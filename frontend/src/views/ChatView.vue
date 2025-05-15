@@ -222,7 +222,6 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
 import { chatSessionStore } from '../stores/chatSession';
-import api from '../services/api'; // 明确导入api服务
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -304,10 +303,16 @@ onMounted(async () => {
     await loadChatSession();
     await loadSessionFiles();
     
-    // 检查是否需要自动加载论文
-    const paperId = route.query.auto_load_paper;
-    if (paperId && typeof paperId === 'string') {
-      await autoLoadPaperFromOss(paperId);
+    // 检查是否有待处理的论文ID
+    const pendingPaperId = localStorage.getItem('pendingChatPaperId');
+    if (pendingPaperId) {
+      console.log(`Found pending paper ID: ${pendingPaperId}, downloading PDF...`);
+      
+      // 清除存储，避免重复处理
+      localStorage.removeItem('pendingChatPaperId');
+      
+      // 开始处理论文
+      await handlePendingPaperDownload(pendingPaperId);
     }
     
     initialLoading.value = false;
@@ -952,80 +957,137 @@ onBeforeUnmount(() => {
   console.log('Chat component unmounting, keeping global session:', chatId.value);
 });
 
-// 自动加载论文PDF
-async function autoLoadPaperFromOss(paperId) {
+// 处理待下载论文的函数
+async function handlePendingPaperDownload(paperId) {
   try {
-    // 检查参数
-    if (!paperId || !chatId.value) {
-      console.error('Missing required parameters', { paperId, chatId: chatId.value });
-      toast.error('无法加载论文: 参数缺失');
+    // 先获取论文信息
+    const paper = await axios.get(`${API_BASE_URL}/api/papers/${paperId}`);
+    
+    if (!paper || !paper.data) {
+      toast.error('Failed to get paper information');
       return;
     }
     
-    // 显示加载提示
-    console.log(`Attempting to load paper ${paperId} for chat ${chatId.value} from OSS`);
-    toast.info(`正在从OSS加载论文 ${paperId} 的PDF文件...`);
+    // 添加用户消息，表明正在处理论文
+    messages.value.push({
+      id: Date.now().toString(),
+      role: 'user',
+      content: `Please analyze the paper: "${paper.data.title}"`,
+      created_at: new Date().toISOString()
+    });
     
-    // 调用API加载论文
-    const response = await api.loadPaperFromOss(chatId.value, paperId);
+    // 设置处理状态
+    isProcessingFile.value = true;
+    processingFileName.value = `${paperId}.pdf`;
     
-    // 显示成功提示
-    toast.success(`已成功加载论文: ${response.paper_title || paperId}`);
+    // 添加"正在处理"消息
+    messages.value.push({
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: `I'm downloading and processing the paper "${paper.data.title}". This may take a moment depending on the size of the PDF. I'll let you know when it's ready for discussion.`,
+      created_at: new Date().toISOString()
+    });
     
-    // 重新加载文件列表
-    await loadSessionFiles();
+    // 滚动到底部
+    await nextTick();
+    scrollToBottom();
     
-    // 如果成功加载，添加系统消息
-    if (response) {
+    // 从OSS下载PDF并与会话关联
+    const downloadResponse = await axios.post(`${API_BASE_URL}/api/papers/download-pdf-for-chat`, {
+      paper_id: paperId,
+      chat_id: chatId.value
+    });
+    
+    if (downloadResponse.data.success) {
+      // 启动处理状态检查
+      if (statusCheckInterval) {
+        clearInterval(statusCheckInterval);
+      }
+      
+      // 每3秒检查一次处理状态
+      statusCheckInterval = window.setInterval(checkProcessingStatus, 3000);
+      
+      console.log('PDF download initiated successfully');
+    } else {
+      // 下载失败
+      isProcessingFile.value = false;
       messages.value.push({
         id: Date.now().toString(),
-        role: 'system',
-        content: `已自动加载论文"${response.paper_title || paperId}"的PDF文件，可以开始提问了。`,
-        timestamp: new Date().toISOString()
+        role: 'assistant',
+        content: 'Sorry, I was unable to download the paper. Please try uploading it manually.',
+        created_at: new Date().toISOString()
       });
       
       // 滚动到底部
       await nextTick();
       scrollToBottom();
     }
-  } catch (err) {
-    console.error('Error loading paper from OSS:', err);
+  } catch (error) {
+    console.error('Error downloading paper:', error);
+    isProcessingFile.value = false;
     
-    let errorMessage = '无法从OSS加载论文PDF: ';
-    
-    if (err.response) {
-      // 处理HTTP错误响应
-      const status = err.response.status;
-      const details = err.response.data?.detail || '未知错误';
-      console.error(`API error ${status}: ${details}`);
-      errorMessage += `(${status}) ${details}`;
-      
-      // 检查是否为404错误
-      if (status === 404) {
-        errorMessage = `论文 ${paperId} 的PDF文件未找到。请手动上传PDF文件。`;
-      }
-    } else if (err.request) {
-      // 请求已发送但没有收到响应
-      console.error('No response received from server');
-      errorMessage += '服务器未响应，请检查网络连接';
-    } else {
-      // 设置请求时发生错误
-      errorMessage += err.message || '未知网络错误';
+    let errorMessage = 'Sorry, I was unable to download the paper. Please try uploading it manually.';
+    if (error.response && error.response.data && error.response.data.detail) {
+      errorMessage = `Error: ${error.response.data.detail}. Please try uploading the PDF manually.`;
     }
     
-    toast.error(errorMessage);
-    
-    // 添加系统消息说明情况
     messages.value.push({
       id: Date.now().toString(),
-      role: 'system',
-      content: `无法自动加载论文"${paperId}"的PDF文件。${errorMessage}`,
-      timestamp: new Date().toISOString()
+      role: 'assistant',
+      content: errorMessage,
+      created_at: new Date().toISOString()
     });
     
     // 滚动到底部
     await nextTick();
     scrollToBottom();
+  }
+}
+
+// 检查文件处理状态
+let statusCheckInterval = null;
+onBeforeUnmount(() => {
+  if (statusCheckInterval) {
+    clearInterval(statusCheckInterval);
+    statusCheckInterval = null;
+  }
+});
+
+async function checkProcessingStatus() {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/processing-status`);
+    
+    // 更新处理状态
+    isProcessingFile.value = response.data.processing;
+    
+    if (response.data.processing) {
+      processingFileName.value = response.data.file_name || 'PDF';
+    } else if (statusCheckInterval) {
+      // 处理完成，停止检查
+      clearInterval(statusCheckInterval);
+      statusCheckInterval = null;
+      
+      // 添加处理完成消息
+      messages.value.push({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `I've finished processing the paper. Now I can answer your questions about it. Feel free to ask me anything about the methodology, results, or any specific section of the paper.`,
+        created_at: new Date().toISOString()
+      });
+      
+      // 刷新文件列表
+      await loadSessionFiles();
+      
+      // 滚动到底部
+      await nextTick();
+      scrollToBottom();
+    }
+  } catch (error) {
+    console.error('Error checking processing status:', error);
+    if (statusCheckInterval) {
+      clearInterval(statusCheckInterval);
+      statusCheckInterval = null;
+    }
   }
 }
 </script>

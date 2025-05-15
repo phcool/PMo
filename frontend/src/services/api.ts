@@ -2,9 +2,6 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { Paper, SearchRequest, SearchResponse } from '@/types/paper';
 import userService from './user';
 
-// 获取API基础URL
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-
 /**
  * Chat response chunk interface
  */
@@ -45,6 +42,20 @@ interface UserPreferences {
 }
 
 /**
+ * PDF download for chat response interface
+ */
+interface PdfDownloadResponse {
+  success: boolean;
+  message: string;
+  file_info?: {
+    id: string;
+    name: string;
+    size: number;
+    upload_time: string;
+  };
+}
+
+/**
  * API Service interface
  */
 export interface IApiService {
@@ -66,8 +77,7 @@ export interface IApiService {
   recordPaperView(paperId: string): Promise<any>;
   getUserPaperViews(limit?: number, days?: number): Promise<Array<{paper: Paper, view_count: number}>>;
   getProcessingStatus(chatId: string): Promise<ProcessingStatus>;
-  loadPaperFromOss(chatId: string, paperId: string): Promise<FileUploadResponse>;
-  getSessionFiles(chatId: string): Promise<Array<{id: string, name: string, size: number, upload_time: string}>>;
+  downloadPdfForChat(paperId: string, chatId: string): Promise<PdfDownloadResponse>;
 }
 
 /**
@@ -79,7 +89,7 @@ class ApiService implements IApiService {
   constructor() {
     // Create axios instance
     this.api = axios.create({
-      baseURL: API_BASE_URL,  // 使用环境变量设置baseURL
+      baseURL: '',  // Use empty string as baseURL to avoid path issues
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
@@ -482,51 +492,29 @@ class ApiService implements IApiService {
    */
   async getProcessingStatus(chatId: string): Promise<ProcessingStatus> {
     try {
-      const response = await this.api.get(`/api/chat/sessions/${chatId}/processing-status`);
+      const response = await this.api.get(`/api/chat/sessions/${chatId}/status`);
       return response.data;
     } catch (error) {
       console.error('Failed to get processing status:', error);
       throw error;
     }
   }
-  
-  /**
-   * Load a paper PDF from OSS to a chat session
-   * @param chatId Chat session ID
-   * @param paperId Paper ID to load from OSS
-   * @returns Promise with file information
-   */
-  async loadPaperFromOss(chatId: string, paperId: string): Promise<FileUploadResponse> {
-    try {
-      console.log(`Loading paper ${paperId} for chat session ${chatId} from OSS`);
-      
-      const response = await this.api.post(
-        `/api/chat/sessions/${chatId}/load-paper`,
-        null,
-        {
-          params: { paper_id: paperId },
-          timeout: 60000 // Longer timeout for file processing
-        }
-      );
-      
-      return response.data;
-    } catch (error) {
-      console.error('Failed to load paper from OSS:', error);
-      throw error;
-    }
-  }
 
   /**
-   * Get session files
+   * Download a paper's PDF from OSS and associate it with a chat session
+   * @param paperId Paper ID
    * @param chatId Chat session ID
-   * @returns Promise with session files
+   * @returns Promise with download result
    */
-  async getSessionFiles(chatId: string): Promise<Array<{id: string, name: string, size: number, upload_time: string}>> {
+  async downloadPdfForChat(paperId: string, chatId: string): Promise<PdfDownloadResponse> {
     try {
-      const response = await this.api.get(`/api/chat/sessions/${chatId}/files`);
+      const response = await this.api.post('/api/papers/download-pdf-for-chat', {
+        paper_id: paperId,
+        chat_id: chatId
+      });
       return response.data;
     } catch (error) {
-      console.error('Failed to get session files:', error);
+      console.error('Failed to download PDF for chat session:', error);
       throw error;
     }
   }

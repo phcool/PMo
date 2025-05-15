@@ -2,13 +2,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
-// 定义环境变量，以处理不同的部署路径
-const BASE_URL = process.env.BASE_URL || '/'
-
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue()],
-  base: BASE_URL, // 使用环境变量设置基础路径
+  base: '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')
