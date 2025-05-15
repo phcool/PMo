@@ -2,6 +2,9 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { Paper, SearchRequest, SearchResponse } from '@/types/paper';
 import userService from './user';
 
+// 获取API基础URL
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
 /**
  * Chat response chunk interface
  */
@@ -76,7 +79,7 @@ class ApiService implements IApiService {
   constructor() {
     // Create axios instance
     this.api = axios.create({
-      baseURL: '',  // Use empty string as baseURL to avoid path issues
+      baseURL: API_BASE_URL,  // 使用环境变量设置baseURL
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
@@ -495,10 +498,13 @@ class ApiService implements IApiService {
    */
   async loadPaperFromOss(chatId: string, paperId: string): Promise<FileUploadResponse> {
     try {
+      console.log(`Loading paper ${paperId} for chat session ${chatId} from OSS`);
+      
       const response = await this.api.post(
-        `/api/chat/sessions/${chatId}/load-paper?paper_id=${paperId}`,
+        `/api/chat/sessions/${chatId}/load-paper`,
         null,
         {
+          params: { paper_id: paperId },
           timeout: 60000 // Longer timeout for file processing
         }
       );

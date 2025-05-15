@@ -222,6 +222,7 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
 import { chatSessionStore } from '../stores/chatSession';
+import api from '../services/api'; // 明确导入api服务
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -954,7 +955,15 @@ onBeforeUnmount(() => {
 // 自动加载论文PDF
 async function autoLoadPaperFromOss(paperId) {
   try {
+    // 检查参数
+    if (!paperId || !chatId.value) {
+      console.error('Missing required parameters', { paperId, chatId: chatId.value });
+      toast.error('无法加载论文: 参数缺失');
+      return;
+    }
+    
     // 显示加载提示
+    console.log(`Attempting to load paper ${paperId} for chat ${chatId.value} from OSS`);
     toast.info(`正在从OSS加载论文 ${paperId} 的PDF文件...`);
     
     // 调用API加载论文
@@ -981,12 +990,42 @@ async function autoLoadPaperFromOss(paperId) {
     }
   } catch (err) {
     console.error('Error loading paper from OSS:', err);
+    
+    let errorMessage = '无法从OSS加载论文PDF: ';
+    
     if (err.response) {
-      const errMsg = err.response.data?.detail || '未知错误';
-      toast.error(`无法从OSS加载论文PDF: ${errMsg}`);
+      // 处理HTTP错误响应
+      const status = err.response.status;
+      const details = err.response.data?.detail || '未知错误';
+      console.error(`API error ${status}: ${details}`);
+      errorMessage += `(${status}) ${details}`;
+      
+      // 检查是否为404错误
+      if (status === 404) {
+        errorMessage = `论文 ${paperId} 的PDF文件未找到。请手动上传PDF文件。`;
+      }
+    } else if (err.request) {
+      // 请求已发送但没有收到响应
+      console.error('No response received from server');
+      errorMessage += '服务器未响应，请检查网络连接';
     } else {
-      toast.error(`无法从OSS加载论文PDF: ${err.message || '网络错误'}`);
+      // 设置请求时发生错误
+      errorMessage += err.message || '未知网络错误';
     }
+    
+    toast.error(errorMessage);
+    
+    // 添加系统消息说明情况
+    messages.value.push({
+      id: Date.now().toString(),
+      role: 'system',
+      content: `无法自动加载论文"${paperId}"的PDF文件。${errorMessage}`,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 滚动到底部
+    await nextTick();
+    scrollToBottom();
   }
 }
 </script>

@@ -30,7 +30,7 @@
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
-      <router-link :to="{ name: 'chat', query: { auto_load_paper: paper.paper_id } }" class="action-button chat-button">
+      <router-link :to="{ name: 'chat', query: { auto_load_paper: paper.paper_id } }" class="action-button chat-button" @click="handleChatClick">
         Chat
       </router-link>
     </div>
@@ -41,6 +41,7 @@
 import { defineComponent, computed } from 'vue'
 import { getCategoryLabel } from '../types/paper'
 import api from '../services/api'
+import { chatSessionStore } from '../stores/chatSession'
 
 export default defineComponent({
   name: 'PaperCard',
@@ -100,12 +101,28 @@ export default defineComponent({
       }, 0);
     };
     
+    // 处理Chat按钮点击
+    const handleChatClick = async () => {
+      try {
+        console.log(`Chat button clicked for paper ${props.paper.paper_id}`);
+        
+        // 确保全局存储中有活跃的会话
+        if (!chatSessionStore.hasActiveSession()) {
+          await chatSessionStore.createChatSession();
+          console.log('Created new chat session:', chatSessionStore.getChatId());
+        }
+      } catch (error) {
+        console.error('Error handling chat click:', error);
+      }
+    };
+    
     return {
       authorText,
       formattedDate,
       truncatedAbstract,
       getCategoryLabel,
-      recordView
+      recordView,
+      handleChatClick
     };
   }
 })
