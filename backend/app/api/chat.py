@@ -6,6 +6,9 @@ import json
 import uuid
 from datetime import datetime
 import os
+import requests
+import aiohttp
+import io
 
 from app.services.chat_service import chat_service
 from app.services.db_service import db_service
@@ -42,10 +45,6 @@ class ChatResponseChunk:
             "content": self.content,
             "done": self.done
         }, ensure_ascii=False)
-
-# Request model for loading paper from OSS
-class LoadPaperFromOSSRequest(BaseModel):
-    paper_id: str
 
 # Create a new chat session
 @router.post("/sessions", response_model=ChatSessionResponse)
@@ -172,95 +171,6 @@ async def get_processing_status(
             status["files_count"] = files_count
     
     return status
-
-# Load a paper from OSS into the chat session
-@router.post("/sessions/{chat_id}/load-paper-from-oss")
-async def load_paper_from_oss(
-    chat_id: str = Path(..., description="Chat session ID"),
-    request_data: LoadPaperFromOSSRequest = Body(..., description="Paper ID to load from OSS")
-):
-    """
-    Download a paper's PDF from OSS, save it locally, and process it for the chat session.
-    This will add the paper to the session's list of usable documents for RAG.
-    """
-    paper_id = request_data.paper_id
-    if not paper_id:
-        raise HTTPException(status_code=400, detail="Paper ID must be provided.")
-
-    # Check if chat session exists
-    if chat_id not in chat_service.active_chats:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Chat session {chat_id} not found"
-        )
-
-    # Prevent loading if another file is already being processed for this session
-    current_processing_status = chat_service.is_processing_file(chat_id)
-    if current_processing_status.get("processing"):
-        raise HTTPException(
-            status_code=423, # Locked
-            detail=f"Another file ({current_processing_status.get('file_name', 'unknown')}) is already being processed for this session. Please wait."
-        )
-    
-    logger.info(f"API: Attempting to load paper {paper_id} from OSS for chat {chat_id}.")
-    
-    try:
-        success = await chat_service.load_paper_from_oss_for_session(chat_id, paper_id)
-        
-        if not success:
-            # The chat_service.load_paper_from_oss_for_session method updates processing_files on error
-            # We need to check the specific error if available from processing_files
-            processing_status = chat_service.is_processing_file(chat_id)
-            error_detail = processing_status.get("error", "Failed to load and process paper from OSS.")
-            
-            logger.error(f"API: Failed to load paper {paper_id} from OSS for chat {chat_id}. Detail: {error_detail}")
-            raise HTTPException(
-                status_code=500, # Or 422 if it's more a processing issue
-                detail=error_detail
-            )
-        
-        # If successful, retrieve file details
-        # The file is added to active_chats[chat_id]["files"] by process_pdf called within load_paper_from_oss_for_session
-        if chat_id in chat_service.active_chats and "files" in chat_service.active_chats[chat_id]:
-            session_files = chat_service.active_chats[chat_id]["files"]
-            if session_files:
-                latest_file_info = session_files[-1] # Assuming the latest processed file is the one from OSS
-                file_path = latest_file_info.get("file_path")
-                filename = latest_file_info.get("filename", f"{paper_id}.pdf")
-                file_id = str(uuid.uuid4()) # Generate a new ID for this file context
-                latest_file_info["id"] = file_id # Store it in the session data
-
-                file_size = 0
-                if file_path and os.path.exists(file_path):
-                    file_size = os.path.getsize(file_path)
-                
-                logger.info(f"API: Successfully loaded and processed paper {paper_id} from OSS into chat {chat_id}. File: {filename}, ID: {file_id}")
-                return {
-                    "message": f"Paper {paper_id} loaded successfully from OSS and processed.",
-                    "file_id": file_id,
-                    "filename": filename,
-                    "size": file_size,
-                    "load_time": datetime.now().isoformat()
-                }
-        
-        logger.warning(f"API: Paper {paper_id} loaded from OSS for chat {chat_id}, but file details not found in session after processing.")
-        # Fallback response if file details are somehow not available after supposedly successful processing
-        return {"message": f"Paper {paper_id} processed, but details could not be retrieved. Please check session files."}
-
-    except HTTPException:
-        raise # Re-throw known HTTP exceptions
-    except Exception as e:
-        logger.error(f"API: Unexpected error loading paper {paper_id} from OSS for chat {chat_id}: {e}", exc_info=True)
-        # Ensure processing status is cleared or marked as error by chat_service
-        chat_service.processing_files[chat_id] = {
-            "processing": False, 
-            "file_name": f"{paper_id}.pdf",
-            "error": f"Unexpected server error: {str(e)}"
-        }
-        raise HTTPException(
-            status_code=500,
-            detail=f"An unexpected error occurred: {str(e)}"
-        )
 
 # Send message and get response
 @router.post("/sessions/{chat_id}/chat")
@@ -446,4 +356,163 @@ async def delete_file(
     raise HTTPException(
         status_code=404,
         detail=f"File with ID {file_id} not found"
-    ) 
+    )
+
+# New API endpoint for fetching paper PDF from OSS and processing it for a chat session
+@router.post("/sessions/{chat_id}/load-paper")
+async def load_paper_from_oss(
+    chat_id: str = Path(..., description="Chat session ID"),
+    paper_id: str = Query(..., description="ID of the paper to load")
+):
+    """
+    Load a paper's PDF from OSS storage and process it for the chat session
+    """
+    # Validate that chat session exists
+    if chat_id not in chat_service.active_chats:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {chat_id} not found"
+        )
+    
+    try:
+        # Check if file is already being processed
+        if chat_service.is_processing_file(chat_id)["processing"]:
+            processing_info = chat_service.is_processing_file(chat_id)
+            raise HTTPException(
+                status_code=423,  # Locked
+                detail=f"Already processing a file: {processing_info['file_name']}. Please wait until processing is complete."
+            )
+        
+        # Get paper details from the database
+        paper = await db_service.get_paper_by_id(paper_id)
+        if not paper:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Paper with ID {paper_id} not found"
+            )
+        
+        # Construct OSS URL
+        # Example: https://paper-pdf-files.oss-us-west-1.aliyuncs.com/papers/23/03/2303_12345.pdf
+        # First extract YY/MM from paper ID
+        year_prefix = ""
+        month_prefix = ""
+        import re
+        
+        # 论文ID格式模式匹配
+        match_new = re.match(r'^(\d{2})(\d{2})\.\d+', paper_id)
+        match_old_style_category = re.match(r'^[a-zA-Z\-]+(?:\.[a-zA-Z]{2})?/(\d{2})(\d{2})\d+', paper_id)
+        match_old_no_category = re.match(r'^(\d{2})(\d{2})\d{3,}', paper_id)
+
+        if match_new:
+            year_prefix = match_new.group(1)
+            month_prefix = match_new.group(2)
+        elif match_old_style_category:
+            year_prefix = match_old_style_category.group(1)
+            month_prefix = match_old_style_category.group(2)
+        elif match_old_no_category:
+            year_prefix = match_old_no_category.group(1)
+            month_prefix = match_old_no_category.group(2)
+            
+        # 文件名处理
+        sanitized_file_name_base = re.sub(r'[/:.]', '_', paper_id.replace('.pdf',''))
+        sanitized_file_name = f"{sanitized_file_name_base}.pdf"
+        
+        # OSS配置
+        bucket_name = os.getenv("OSS_BUCKET_NAME", "paper-pdf-files")
+        endpoint = os.getenv("OSS_ENDPOINT", "oss-us-west-1.aliyuncs.com")
+        
+        # 构建OSS对象URL
+        if year_prefix and month_prefix:
+            oss_object_key = f"papers/{year_prefix}/{month_prefix}/{sanitized_file_name}"
+        else:
+            oss_object_key = f"papers/unknown_date_format/{sanitized_file_name}"
+            
+        oss_url = f"https://{bucket_name}.{endpoint}/{oss_object_key}"
+        
+        # 下载PDF文件
+        async with aiohttp.ClientSession() as session:
+            try:
+                # 设置标记为处理中
+                chat_service.processing_files[chat_id] = {"processing": True, "file_name": f"{paper.title}.pdf"}
+                
+                # 下载PDF文件
+                logger.info(f"Downloading PDF for paper {paper_id} from OSS: {oss_url}")
+                async with session.get(oss_url) as response:
+                    if response.status != 200:
+                        # 设置会话状态为非处理中
+                        chat_service.processing_files[chat_id] = {"processing": False, "file_name": f"{paper.title}.pdf"}
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"PDF for paper {paper_id} not found in OSS storage"
+                        )
+                    
+                    file_content = await response.read()
+                    
+                # 处理PDF文件
+                success = await chat_service.process_pdf(chat_id, file_content, f"{paper.title}.pdf")
+                
+                if not success:
+                    # 设置会话状态为非处理中
+                    chat_service.processing_files[chat_id] = {"processing": False, "file_name": f"{paper.title}.pdf"}
+                    
+                    # 返回错误
+                    raise HTTPException(
+                        status_code=422, 
+                        detail="Failed to process PDF file from OSS. This could be due to file format issues or API limitations."
+                    )
+                
+                # 获取文件信息
+                if chat_id in chat_service.active_chats and "files" in chat_service.active_chats[chat_id]:
+                    # 获取最后添加的文件
+                    files = chat_service.active_chats[chat_id]["files"]
+                    if files:
+                        latest_file = files[-1]
+                        # 为文件生成一个ID
+                        file_id = str(uuid.uuid4())
+                        latest_file["id"] = file_id
+                        
+                        # 返回文件信息
+                        return {
+                            "id": file_id,
+                            "name": f"{paper.title}.pdf",
+                            "size": len(file_content),
+                            "upload_time": datetime.now().isoformat(),
+                            "paper_id": paper_id,
+                            "paper_title": paper.title
+                        }
+                
+                # 如果无法获取文件信息，返回基本成功消息
+                return {
+                    "id": str(uuid.uuid4()),
+                    "name": f"{paper.title}.pdf",
+                    "size": len(file_content),
+                    "upload_time": datetime.now().isoformat(),
+                    "paper_id": paper_id,
+                    "paper_title": paper.title,
+                    "message": "PDF file processed successfully"
+                }
+                
+            except HTTPException:
+                # 重新抛出HTTP异常
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error processing PDF from OSS: {str(e)}")
+                # 设置会话状态为非处理中
+                if chat_id in chat_service.processing_files:
+                    chat_service.processing_files[chat_id] = {"processing": False, "file_name": f"{paper.title}.pdf"}
+                
+                # 返回500错误
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"An unexpected error occurred while processing the PDF from OSS: {str(e)}"
+                )
+    
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in load_paper_from_oss: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        ) 

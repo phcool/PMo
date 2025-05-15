@@ -5,7 +5,6 @@ import time
 import uuid
 import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
-import aiofiles # For reading local file content
 
 from app.services.llm_service import llm_service
 from app.services.pdf_service import pdf_service
@@ -36,58 +35,6 @@ class ChatService:
         
         logger.info(f"Chat Service initialized. Max context: {self.max_context_messages}, Max chunks: {self.max_chunks_per_query}, Session timeout: {self.session_timeout_hours}h")
     
-    async def load_paper_from_oss_for_session(self, chat_id: str, paper_id: str) -> bool:
-        """
-        Downloads a paper's PDF from OSS, saves it locally, and processes it for the chat session.
-        """
-        if chat_id not in self.active_chats:
-            logger.error(f"Chat session {chat_id} not found while trying to load paper {paper_id} from OSS.")
-            return False
-
-        self._update_session_activity(chat_id)
-        
-        # 标记为处理中 (模拟文件上传的处理流程)
-        # 使用 paper_id 作为文件名提示，因为它更相关
-        processing_filename = f"{paper_id.replace('/ ','_')}.pdf"
-        self.processing_files[chat_id] = {"processing": True, "file_name": processing_filename}
-        logger.info(f"Attempting to load paper {paper_id} from OSS for chat {chat_id}. Marked as processing.")
-
-        try:
-            local_file_path = await pdf_service.download_and_save_pdf_from_oss(paper_id)
-
-            if not local_file_path:
-                logger.error(f"Failed to download paper {paper_id} from OSS or save it locally for chat {chat_id}.")
-                self.processing_files[chat_id] = {"processing": False, "file_name": processing_filename, "error": "Failed to download from OSS"}
-                return False
-
-            logger.info(f"Paper {paper_id} successfully downloaded from OSS to {local_file_path} for chat {chat_id}.")
-
-            # 文件已由 pdf_service 保存到本地，现在需要像处理上传文件一样处理它
-            # 这包括将其添加到会话的文件列表，并为其创建向量存储
-            # process_pdf 方法正是做这个的，但它期望文件字节内容
-            
-            async with aiofiles.open(local_file_path, 'rb') as f_content:
-                file_content_bytes = await f_content.read()
-            
-            # 使用从 paper_id 派生的文件名或本地文件名
-            actual_filename = os.path.basename(local_file_path) # Or a more descriptive name based on paper_id
-
-            success = await self.process_pdf(chat_id, file_content_bytes, actual_filename)
-            
-            if success:
-                logger.info(f"Successfully processed OSS-downloaded paper {paper_id} (local: {actual_filename}) for chat {chat_id}.")
-            else:
-                logger.error(f"Failed to process OSS-downloaded paper {paper_id} (local: {actual_filename}) for chat {chat_id} after download.")
-                # process_pdf 内部会更新 processing_files 状态
-            return success
-
-        except Exception as e:
-            logger.error(f"Unexpected error in load_paper_from_oss_for_session for paper {paper_id}, chat {chat_id}: {e}", exc_info=True)
-            self.processing_files[chat_id] = {"processing": False, "file_name": processing_filename, "error": str(e)}
-            return False
-        # Ensure processing status is cleared if not done by process_pdf on error
-        # However, process_pdf should handle its own status updates upon completion or failure.
-
     def create_chat_session(self, paper_id: Optional[str] = None) -> str:
         """
         Create a new chat session

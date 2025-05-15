@@ -221,6 +221,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
+import { chatSessionStore } from '../stores/chatSession';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -281,15 +282,33 @@ onMounted(async () => {
   try {
     initialLoading.value = true;
     error.value = null;
-    // If there's a chatId parameter in the URL, load existing session
+    
+    // 使用全局会话或特定路由参数会话
     if (route.params.id) {
+      // 如果URL中有会话ID，使用该ID
       chatId.value = route.params.id;
-      await loadChatSession();
-      await loadSessionFiles();
+      // 更新全局会话状态
+      chatSessionStore.setChatId(chatId.value);
+    } else if (chatSessionStore.hasActiveSession()) {
+      // 如果全局已有会话，使用全局会话
+      chatId.value = chatSessionStore.getChatId();
+      // 更新URL
+      router.push({ name: 'chat', params: { id: chatId.value } });
     } else {
-      // Otherwise create a new session
+      // 如果全局没有会话，则创建新会话
       await createChatSession();
     }
+    
+    // 加载会话消息和文件
+    await loadChatSession();
+    await loadSessionFiles();
+    
+    // 检查是否需要自动加载论文
+    const paperId = route.query.auto_load_paper;
+    if (paperId && typeof paperId === 'string') {
+      await autoLoadPaperFromOss(paperId);
+    }
+    
     initialLoading.value = false;
   } catch (err) {
     console.error('Initialization error:', err);
@@ -322,14 +341,18 @@ onMounted(async () => {
 async function createChatSession() {
   try {
     isLoading.value = true;
-    const response = await axios.post(`${API_BASE_URL}/api/chat/sessions`);
     
-    // Get chat_id from API response structure
-    chatId.value = response.data.chat_id;
+    // 使用全局会话服务创建会话
+    if (!chatSessionStore.hasActiveSession()) {
+      await chatSessionStore.createChatSession();
+    }
     
-    // Update URL to include session ID
+    // 从全局存储获取会话ID
+    chatId.value = chatSessionStore.getChatId();
+    
+    // 更新URL以包含会话ID
     router.push({ name: 'chat', params: { id: chatId.value } });
-    console.log('Created new session:', chatId.value);
+    console.log('Using global chat session:', chatId.value);
   } catch (error) {
     console.error('Session creation failed:', error);
     toast.error('Failed to create chat session. Please try again.');
@@ -908,6 +931,63 @@ onBeforeUnmount(() => {
 // Return different placeholder based on current mode
 function getPlaceholderText() {
   return isSearchMode.value ? 'Type your search query...' : 'Type your question...';
+}
+
+// 监听全局会话状态
+watch(() => chatSessionStore.state.chatId, (newChatId) => {
+  if (newChatId && newChatId !== chatId.value) {
+    chatId.value = newChatId;
+    
+    // 如果路由参数中的ID与全局ID不匹配，更新路由
+    if (route.params.id !== newChatId) {
+      router.push({ name: 'chat', params: { id: newChatId } });
+    }
+  }
+});
+
+// 组件卸载前保留会话
+onBeforeUnmount(() => {
+  // 不再结束聊天会话，而是将其保留在全局状态中
+  console.log('Chat component unmounting, keeping global session:', chatId.value);
+});
+
+// 自动加载论文PDF
+async function autoLoadPaperFromOss(paperId) {
+  try {
+    // 显示加载提示
+    toast.info(`正在从OSS加载论文 ${paperId} 的PDF文件...`);
+    
+    // 调用API加载论文
+    const response = await api.loadPaperFromOss(chatId.value, paperId);
+    
+    // 显示成功提示
+    toast.success(`已成功加载论文: ${response.paper_title || paperId}`);
+    
+    // 重新加载文件列表
+    await loadSessionFiles();
+    
+    // 如果成功加载，添加系统消息
+    if (response) {
+      messages.value.push({
+        id: Date.now().toString(),
+        role: 'system',
+        content: `已自动加载论文"${response.paper_title || paperId}"的PDF文件，可以开始提问了。`,
+        timestamp: new Date().toISOString()
+      });
+      
+      // 滚动到底部
+      await nextTick();
+      scrollToBottom();
+    }
+  } catch (err) {
+    console.error('Error loading paper from OSS:', err);
+    if (err.response) {
+      const errMsg = err.response.data?.detail || '未知错误';
+      toast.error(`无法从OSS加载论文PDF: ${errMsg}`);
+    } else {
+      toast.error(`无法从OSS加载论文PDF: ${err.message || '网络错误'}`);
+    }
+  }
 }
 </script>
 

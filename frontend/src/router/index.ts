@@ -33,7 +33,7 @@ const routes: Array<RouteRecordRaw> = [
     }
   },
   {
-    path: '/chat/:paperId?',
+    path: '/chat/:id?',
     name: 'chat',
     component: () => import('../views/ChatView.vue'),
     props: true,

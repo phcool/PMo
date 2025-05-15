@@ -204,6 +204,7 @@ import { defineComponent, ref, onMounted, computed, watch, nextTick, onBeforeUnm
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'  // Remove .ts extension
 import { getCategoryLabel } from '../types/paper'
+import { chatSessionStore } from '../stores/chatSession'
 
 export default defineComponent({
   name: 'PaperDetailView',
@@ -444,6 +445,33 @@ export default defineComponent({
       });
     };
 
+    // 创建或获取聊天会话
+    const getChatSession = async () => {
+      let chatId = '';
+      
+      // 检查是否存在全局会话
+      if (chatSessionStore.hasActiveSession()) {
+        // 使用全局会话
+        chatId = chatSessionStore.getChatId();
+        chatSessionId.value = chatId;
+        console.log('Using global chat session:', chatId);
+      } else {
+        // 如果没有全局会话，创建一个新的
+        try {
+          await chatSessionStore.createChatSession(paper.value?.paper_id);
+          chatId = chatSessionStore.getChatId();
+          chatSessionId.value = chatId;
+          console.log('Created new global chat session:', chatId);
+        } catch (e) {
+          console.error('Error creating chat session:', e);
+          chatError.value = 'Failed to create chat session';
+          return null;
+        }
+      }
+      
+      return chatId;
+    };
+
     // Handle file upload
     const handleFileUpload = async (event) => {
       const files = event.target.files;
@@ -476,21 +504,9 @@ export default defineComponent({
       // 不自动打开文件列表
       showFilesList.value = false;
       
-      // 创建或获取聊天会话
-      let chatId = '';
-      if (!chatSessionId.value) {
-        try {
-          const sessionResponse = await api.createChatSession(paper.value.paper_id);
-          chatSessionId.value = sessionResponse.chat_id;
-          chatId = chatSessionId.value;
-        } catch (e) {
-          console.error('Error creating chat session:', e);
-          chatError.value = 'Failed to create chat session';
-          return;
-        }
-      } else {
-        chatId = chatSessionId.value;
-      }
+      // 获取聊天会话ID
+      const chatId = await getChatSession();
+      if (!chatId) return;
       
       // 清空之前的待处理文件队列
       pendingFiles.value = [];
@@ -631,15 +647,7 @@ export default defineComponent({
           }
         });
         
-        // 清理聊天会话
-        if (chatSessionId.value) {
-          try {
-            await api.endChatSession(chatSessionId.value);
-          } catch (e) {
-            console.error('Error ending chat session:', e);
-          }
-          chatSessionId.value = '';
-        }
+        // 不再结束聊天会话，保留全局状态
         
         // 重置上传的PDF相关状态
         uploadedPdfs.value = [];
@@ -650,23 +658,94 @@ export default defineComponent({
         // 清空聊天消息
         chatMessages.value = [];
       } else if (chatMode.value) {
-        // 创建一个新的聊天会话
+        // 使用全局会话
         try {
-          const sessionResponse = await api.createChatSession(paper.value.paper_id);
-          chatSessionId.value = sessionResponse.chat_id;
+          // 获取或创建会话
+          await getChatSession();
           
-          // 添加问候消息
-          chatMessages.value.push({
-            role: 'assistant',
-            content: `Hello! I'm an AI assistant that can help you understand the paper: "${paper.value.title}". 
+          // 检查是否成功获取会话ID
+          if (chatSessionId.value) {
+            // 添加问候消息
+            chatMessages.value.push({
+              role: 'assistant',
+              content: `Hello! I'm an AI assistant that can help you understand the paper: "${paper.value.title}". 
 
 **Important:** Please upload the PDF of this paper using the "Upload PDF" button above. Without the PDF, I can only provide general information based on the title and abstract. With the PDF, I can analyze the paper in detail including methodology, results, figures, and tables.
 
 What would you like to know about this paper?`
-          });
+            });
+            
+            // 如果没有上传的PDF文件且paper.value存在，尝试自动从OSS加载PDF
+            if (uploadedPdfs.value.length === 0 && paper.value && paper.value.paper_id) {
+              try {
+                // 设置处理状态
+                isProcessingFile.value = true;
+                processingFileName.value = `${paper.value.title}.pdf`;
+                
+                // 添加一条提示消息
+                chatMessages.value.push({
+                  role: 'system',
+                  content: `正在从OSS自动加载论文"${paper.value.title}"的PDF文件，请稍候...`
+                });
+                
+                // 滚动到底部
+                nextTick(() => {
+                  smartScrollToBottom();
+                });
+                
+                // 调用API加载论文
+                const response = await api.loadPaperFromOss(chatSessionId.value, paper.value.paper_id);
+                
+                // 添加一条成功消息
+                chatMessages.value.push({
+                  role: 'system',
+                  content: `已成功加载论文"${paper.value.title}"的PDF文件，现在可以开始提问了。`
+                });
+                
+                // 重新加载会话文件列表
+                const files = await api.getSessionFiles(chatSessionId.value);
+                
+                // 更新上传的PDF列表
+                uploadedPdfs.value = files.map(file => ({
+                  name: file.name,
+                  size: file.size,
+                  url: `/api/chat/files/${file.id}/view?no_download=true`,
+                  uploadedAt: new Date(file.upload_time)
+                }));
+                
+                // 滚动到底部
+                nextTick(() => {
+                  smartScrollToBottom();
+                });
+              } catch (error) {
+                console.error('Failed to auto-load paper PDF:', error);
+                let errorMsg = '未知错误';
+                
+                if (error.response && error.response.data) {
+                  errorMsg = error.response.data.detail || error.response.statusText;
+                } else if (error.message) {
+                  errorMsg = error.message;
+                }
+                
+                // 添加一条错误消息
+                chatMessages.value.push({
+                  role: 'system',
+                  content: `无法自动加载论文PDF文件: ${errorMsg}。请使用"Upload PDF"按钮手动上传。`
+                });
+              } finally {
+                // 重置处理状态
+                isProcessingFile.value = false;
+                
+                // 滚动到底部
+                nextTick(() => {
+                  smartScrollToBottom();
+                });
+              }
+            }
+          }
         } catch (e) {
-          console.error('Error creating chat session:', e);
-          chatError.value = 'Failed to create chat session';
+          console.error('Error getting chat session:', e);
+          chatError.value = 'Failed to initialize chat session';
           
           // 添加一个简单的问候消息作为回退
           chatMessages.value.push({
@@ -705,8 +784,7 @@ What would you like to know about this paper?`
       try {
         // 确保我们有一个有效的聊天会话ID
         if (!chatSessionId.value) {
-          const sessionResponse = await api.createChatSession(paper.value.paper_id);
-          chatSessionId.value = sessionResponse.chat_id;
+          await getChatSession();
         }
         
         // 发送消息到会话
@@ -874,6 +952,17 @@ What would you like to know about this paper?`
     onBeforeUnmount(() => {
       cleanup();
       window.removeEventListener('beforeunload', cleanup);
+      
+      // 不再结束聊天会话，保留在全局状态中
+      console.log('Paper detail component unmounting, keeping global session:', chatSessionId.value);
+    });
+    
+    // 监听全局会话状态
+    watch(() => chatSessionStore.state.chatId, (newChatId) => {
+      if (newChatId && newChatId !== chatSessionId.value) {
+        chatSessionId.value = newChatId;
+        console.log('Updated chat session ID from global store:', newChatId);
+      }
     });
     
     return {

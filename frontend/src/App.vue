@@ -22,10 +22,11 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, onMounted, onUnmounted } from 'vue'
+import { defineComponent, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import { useRouter, RouteLocationNormalized } from 'vue-router'
 import userService from './services/user'
 import api from './services/api'
+import { chatSessionStore } from './stores/chatSession'
 
 export default defineComponent({
   name: 'App',
@@ -54,7 +55,28 @@ export default defineComponent({
       }
     };
     
-    onMounted(() => {
+    // 初始化全局聊天会话
+    const initGlobalChatSession = async (): Promise<void> => {
+      try {
+        // 只有当没有活动会话时才创建新会话
+        if (!chatSessionStore.hasActiveSession()) {
+          console.log('Initializing global chat session');
+          await chatSessionStore.createChatSession();
+        }
+      } catch (error) {
+        console.error('Failed to initialize global chat session:', error);
+      }
+    };
+    
+    // 在窗口关闭前结束聊天会话
+    const endChatSessionBeforeUnload = async (): Promise<void> => {
+      if (chatSessionStore.hasActiveSession()) {
+        console.log('Ending global chat session before unload');
+        await chatSessionStore.endChatSession();
+      }
+    };
+    
+    onMounted(async () => {
       // Add global navigation hook
       router.beforeEach(saveScrollPositionBeforeLeave);
       
@@ -65,6 +87,20 @@ export default defineComponent({
       router.afterEach(() => {
         updateUserVisit();
       });
+      
+      // 初始化全局聊天会话
+      await initGlobalChatSession();
+      
+      // 添加窗口关闭事件监听器
+      window.addEventListener('beforeunload', endChatSessionBeforeUnload);
+    });
+    
+    onBeforeUnmount(() => {
+      // 在组件卸载前结束聊天会话
+      endChatSessionBeforeUnload();
+      
+      // 移除窗口关闭事件监听器
+      window.removeEventListener('beforeunload', endChatSessionBeforeUnload);
     });
     
     onUnmounted(() => {
