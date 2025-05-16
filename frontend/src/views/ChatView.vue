@@ -11,7 +11,6 @@
               <h2>AI Chat</h2>
               <div class="header-actions">
                 <button 
-                  v-if="pdfFiles.length > 0" 
                   @click="toggleFilesList" 
                   class="file-list-toggle"
                   :class="{ 'active': showFilesList }"
@@ -89,18 +88,6 @@
                   class="chat-input"
                 ></textarea>
                 <div class="input-actions">
-                  <label class="action-button" :class="{ disabled: isLoading || isProcessingFile }">
-                    <svg class="icon-svg" viewBox="0 0 24 24">
-                      <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" />
-                    </svg>
-                    <input 
-                      type="file" 
-                      accept=".pdf" 
-                      @change="handleFileUpload" 
-                      style="display: none;"
-                      :disabled="isLoading || isProcessingFile"
-                    >
-                  </label>
                   <button 
                     class="action-button" 
                     :class="{ 
@@ -157,17 +144,13 @@
             <div class="loader"></div>
             <div>Loading PDF...</div>
           </div>
-          <object 
-            :data="currentPdfUrl" 
+          <embed 
+            :src="currentPdfUrl" 
             type="application/pdf"
             class="pdf-iframe" 
             @load="isPdfLoading = false"
             :style="{ opacity: isPdfLoading ? 0 : 1 }"
           >
-            <div class="pdf-fallback">
-              Unable to display PDF directly, <a :href="currentPdfUrl" target="_blank">click here</a> to open in a new window
-            </div>
-          </object>
         </div>
         
         <div v-if="!showPdf || !currentPdfUrl" class="pdf-files-panel">
@@ -203,7 +186,7 @@
               </button>
             </div>
             <div v-if="pdfFiles.length === 0" class="text-center p-4 text-gray-500">
-              No files. Please upload a PDF file for analysis.
+              No files available in this session.
             </div>
           </div>
         </div>
@@ -257,12 +240,6 @@ const processingFileName = ref('');
 const isPdfLoading = ref(false); // PDF loading status
 const currentFileName = ref('Document'); // Current PDF filename
 
-// PDF file upload progress
-const isUploading = ref(false);
-const uploadProgress = ref(0);
-const pendingFiles = ref([]);
-const currentProcessingIndex = ref(0);
-
 // Related papers status
 const relatedPapers = ref([]);
 const relatedPapersMessageId = ref(null);
@@ -270,9 +247,7 @@ const relatedPapersMessageId = ref(null);
 // Calculate input placeholder text
 const inputPlaceholder = computed(() => {
   if (isProcessingFile.value) {
-    return pendingFiles.value.length > 1 
-      ? `Please wait while I process ${processingFileName.value}... (${currentProcessingIndex.value + 1}/${pendingFiles.value.length})` 
-      : `Please wait while I process ${processingFileName.value}...`;
+    return `Please wait while I process ${processingFileName.value}...`;
   }
   return isSearchMode.value ? 'Type your search query...' : 'Type your question...';
 });
@@ -708,100 +683,6 @@ function updateMessageDisplay(messageEl, content) {
   
   // Scroll to bottom
   scrollToBottom();
-}
-
-// Handle file upload
-async function handleFileUpload(event) {
-  const files = event.target.files;
-  if (!files || files.length === 0) return;
-  
-  try {
-    isUploading.value = true;
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      
-      // File size limit check (20MB)
-      if (file.size > 20 * 1024 * 1024) {
-        toast.error(`File ${file.name} is too large. Maximum size is 20MB.`);
-        continue;
-      }
-      
-      // Add to processing queue
-      pendingFiles.value.push(file);
-    }
-    
-    // Reset file input
-    event.target.value = null;
-    
-    // Process files in queue
-    if (pendingFiles.value.length > 0) {
-      processNextFile();
-    }
-  } catch (error) {
-    console.error('File upload failed:', error);
-    toast.error('File upload failed. Please try again.');
-    isUploading.value = false;
-  }
-}
-
-// Process next file in queue
-async function processNextFile() {
-  if (pendingFiles.value.length === 0) {
-    isUploading.value = false;
-    return;
-  }
-  
-  const file = pendingFiles.value[0];
-  currentProcessingIndex.value = 0;
-  processingFileName.value = file.name;
-  isProcessingFile.value = true;
-  
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const response = await axios.post(
-      `${API_BASE_URL}/api/chat/sessions/${chatId.value}/upload`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
-          uploadProgress.value = percentCompleted;
-        }
-      }
-    );
-    
-    // Add new file to list
-    if (response.data) {
-      pdfFiles.value.push(response.data);
-      toast.success(`File ${file.name} uploaded successfully`);
-    }
-  } catch (error) {
-    console.error('Failed to process file:', error);
-    toast.error(`Failed to process file ${file.name}. Please try again.`);
-  } finally {
-    // Remove processed file and process next
-    pendingFiles.value.shift();
-    currentProcessingIndex.value++;
-    
-    if (pendingFiles.value.length > 0) {
-      processNextFile();
-    } else {
-      isProcessingFile.value = false;
-      processingFileName.value = '';
-      uploadProgress.value = 0;
-      isUploading.value = false;
-      
-      // Show file list
-      showFilesList.value = true;
-    }
-  }
 }
 
 // Select PDF file

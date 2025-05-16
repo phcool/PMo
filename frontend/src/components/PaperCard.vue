@@ -25,14 +25,14 @@
     
     <div class="paper-actions">
       <a :href="paper.pdf_url" target="_blank" rel="noopener" class="action-button" @click="recordView">
-        View PDF
+        Open PDF
       </a>
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
-      <router-link :to="{ name: 'chat' }" class="action-button chat-button">
+      <button @click="startChatWithPaper" class="action-button chat-button">
         Chat
-      </router-link>
+      </button>
     </div>
   </div>
 </template>
@@ -41,6 +41,9 @@
 import { defineComponent, computed } from 'vue'
 import { getCategoryLabel } from '../types/paper'
 import api from '../services/api'
+import { useRouter } from 'vue-router'
+import { chatSessionStore } from '../stores/chatSession'
+import { useToast } from 'vue-toastification'
 
 export default defineComponent({
   name: 'PaperCard',
@@ -53,6 +56,9 @@ export default defineComponent({
   },
   
   setup(props) {
+    const router = useRouter();
+    const toast = useToast();
+    
     // Format the authors list (show first 3 names, then "et al" if more)
     const authorText = computed(() => {
       const authors = props.paper.authors;
@@ -100,12 +106,59 @@ export default defineComponent({
       }, 0);
     };
     
+    // 开始与论文聊天
+    const startChatWithPaper = async () => {
+      try {
+        // 确保有活跃的聊天会话
+        if (!chatSessionStore.hasActiveSession()) {
+          await chatSessionStore.createChatSession();
+        }
+        
+        const chatId = chatSessionStore.getChatId();
+        
+        // 显示正在处理的提示
+        const notification = toast.info(`Preparing paper ${props.paper.paper_id} for chat...`, {
+          timeout: false,
+          closeButton: false
+        });
+        
+        // 调用API下载论文并关联到聊天会话
+        const response = await api.associatePaperWithChat(props.paper.paper_id, chatId);
+        
+        // 关闭提示
+        toast.dismiss(notification);
+        
+        if (response && response.success) {
+          toast.success(`Paper ${props.paper.paper_id} is ready for chat`);
+          
+          // 跳转到聊天页面
+          router.push({ name: 'chat', params: { id: chatId } });
+        } else {
+          throw new Error('Failed to associate paper with chat session');
+        }
+      } catch (error) {
+        console.error('Error starting chat with paper:', error);
+        toast.error('Failed to prepare paper for chat. Please try again.');
+        
+        // 出错时也跳转到聊天页面，但不关联论文
+        if (chatSessionStore.hasActiveSession()) {
+          router.push({ 
+            name: 'chat',
+            params: { id: chatSessionStore.getChatId() } 
+          });
+        } else {
+          router.push({ name: 'chat' });
+        }
+      }
+    };
+    
     return {
       authorText,
       formattedDate,
       truncatedAbstract,
       getCategoryLabel,
-      recordView
+      recordView,
+      startChatWithPaper
     };
   }
 })

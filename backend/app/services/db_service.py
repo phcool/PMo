@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.paper import Paper, PaperResponse
 from app.models.db_models import DBPaper, DBAuthor, DBCategory, DBUserPreferences, DBUserSearchHistory, DBUserPaperView
@@ -15,18 +16,10 @@ from app.db.database import get_async_db
 
 logger = logging.getLogger(__name__)
 
-# 定义数据库服务异常
-class DatabaseError(Exception):
-    """数据库服务异常基类"""
-    pass
-
 class DBService:
     """
     PostgreSQL database service for storing and retrieving paper data
     """
-    
-    # 添加DatabaseError作为类属性
-    DatabaseError = DatabaseError
     
     def __init__(self):
         """Initialize database service"""
@@ -161,33 +154,53 @@ class DBService:
         Returns:
             Paper object or None (if not found)
         """
-        async for db in get_async_db():
-            result = await db.execute(
-                select(DBPaper)
-                .options(
-                    selectinload(DBPaper.authors),
-                    selectinload(DBPaper.categories)
-                )
-                .where(DBPaper.paper_id == paper_id)
-            )
-            db_paper = result.scalars().first()
-            
-            if not db_paper:
-                return None
-            
-            # Convert to API model
-            return Paper(
-                paper_id=db_paper.paper_id,
-                title=db_paper.title,
-                authors=[author.name for author in db_paper.authors],
-                abstract=db_paper.abstract,
-                categories=[category.name for category in db_paper.categories],
-                pdf_url=db_paper.pdf_url,
-                published_date=db_paper.published_date,
-                updated_date=db_paper.updated_date,
-                embedding=None  # Embedding stored in faiss
-            )
+        logger.info(f"Looking up paper in database with ID: {paper_id}")
         
+        if not paper_id:
+            logger.warning("Attempted to get paper with empty ID")
+            return None
+            
+        try:
+            async for db in get_async_db():
+                try:
+                    result = await db.execute(
+                        select(DBPaper)
+                        .options(
+                            selectinload(DBPaper.authors),
+                            selectinload(DBPaper.categories)
+                        )
+                        .where(DBPaper.paper_id == paper_id)
+                    )
+                    db_paper = result.scalars().first()
+                    
+                    if not db_paper:
+                        logger.warning(f"Paper with ID {paper_id} not found in database")
+                        return None
+                    
+                    # Convert to API model
+                    paper = Paper(
+                        paper_id=db_paper.paper_id,
+                        title=db_paper.title,
+                        authors=[author.name for author in db_paper.authors],
+                        abstract=db_paper.abstract,
+                        categories=[category.name for category in db_paper.categories],
+                        pdf_url=db_paper.pdf_url,
+                        published_date=db_paper.published_date,
+                        updated_date=db_paper.updated_date,
+                        embedding=None  # Embedding stored in faiss
+                    )
+                    
+                    logger.info(f"Found paper: {paper.title} (ID: {paper.paper_id}) with {len(paper.authors)} authors and {len(paper.categories)} categories")
+                    return paper
+                    
+                except SQLAlchemyError as e:
+                    logger.error(f"Database error when getting paper by ID {paper_id}: {str(e)}")
+                    return None
+        except Exception as e:
+            logger.error(f"Unexpected error when getting paper by ID {paper_id}: {str(e)}", exc_info=True)
+            return None
+        
+        logger.warning(f"Paper lookup completed with no result for ID: {paper_id}")
         return None
     
     async def get_papers_by_ids(self, paper_ids: List[str]) -> List[Paper]:

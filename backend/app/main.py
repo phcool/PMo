@@ -6,26 +6,17 @@ from fastapi.responses import HTMLResponse, FileResponse, Response
 from dotenv import load_dotenv
 import logging
 import pathlib
-from pathlib import Path
-from fastapi.responses import JSONResponse
-from fastapi import Depends
-from fastapi.responses import RedirectResponse
 
 # Load environment variables
 load_dotenv()
 
 
 from app.api import paper, search, user, chat
-from app.services.db_service import db_service
 
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO")),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join("logs", "app.log")),
-    ],
 )
 
 logger = logging.getLogger(__name__)
@@ -33,11 +24,6 @@ logger = logging.getLogger(__name__)
 # Get absolute path to frontend dist directory
 FRONTEND_DIST_DIR = os.getenv("FRONTEND_DIST_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist"))
 logger.info(f"Using frontend static files directory: {FRONTEND_DIST_DIR}")
-
-# 创建临时PDF文件目录 - 修改为backend目录下
-TEMP_PDF_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "temp_pdfs"
-TEMP_PDF_DIR.mkdir(exist_ok=True)
-logger.info(f"Temporary PDF directory: {TEMP_PDF_DIR}")
 
 # Create API sub-application
 api_app = FastAPI(
@@ -68,15 +54,6 @@ api_app.include_router(chat.router, prefix="/chat", tags=["chat"])
 
 # Mount API sub-application to main application
 app.mount("/api", api_app)
-
-# 设置临时PDF目录为静态文件服务
-app.mount("/pdf-temp", StaticFiles(directory=str(TEMP_PDF_DIR)), name="pdf_temp")
-
-# Mount pdfjs directory (if exists)
-PDFJS_DIR = os.path.join(FRONTEND_DIST_DIR, "pdfjs")
-if os.path.exists(PDFJS_DIR) and os.path.isdir(PDFJS_DIR):
-    logger.info(f"Mounting pdfjs directory: {PDFJS_DIR}")
-    app.mount("/pdfjs", StaticFiles(directory=PDFJS_DIR), name="pdfjs")
 
 # Mount frontend assets directory
 ASSETS_DIR = os.path.join(FRONTEND_DIST_DIR, "assets")
@@ -159,29 +136,4 @@ async def serve_spa(request: Request, full_path: str):
         logger.error(f"index.html file does not exist: {index_file}")
         raise HTTPException(status_code=404, detail="Frontend files not found")
 
-# 数据库连接异常处理
-@app.exception_handler(db_service.DatabaseError)
-async def database_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={"message": f"Database error: {str(exc)}"},
-    )
-
-# 健康检查
-@app.get("/api/health", tags=["system"])
-async def health_check():
-    return {"status": "healthy"}
-
-# 根路径重定向到首页
-@app.get("/")
-async def root():
-    return RedirectResponse(url="/index.html")
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    host = os.getenv("API_HOST", "0.0.0.0")
-    port = int(os.getenv("API_PORT", "8000"))
-    reload = os.getenv("API_RELOAD", "false").lower() == "true"
-    
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+# Application startup and shutdown events

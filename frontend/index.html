@@ -6,25 +6,6 @@
   <link rel="icon" href="/favicon.ico">
   <title>DL Paper Monitor</title>
   <meta name="description" content="A tool for monitoring and searching deep learning research papers">
-  <!-- PDF.js library -->
-  <script>
-    // 动态加载PDF.js以提高可靠性
-    window.addEventListener('load', function() {
-      // 尝试加载PDF.js库
-      var pdfScript = document.createElement('script');
-      pdfScript.src = '/pdfjs/pdf.js';
-      pdfScript.onerror = function() {
-        console.warn('Failed to load PDF.js library. PDF viewing may not work properly.');
-      };
-      pdfScript.onload = function() {
-        // 成功加载后配置worker
-        if (window.pdfjsLib) {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.js';
-        }
-      };
-      document.head.appendChild(pdfScript);
-    });
-  </script>
 </head>
 <body>
   <div id="app"></div>

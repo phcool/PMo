@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import asyncio
+import aiofiles
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 
 from app.services.llm_service import llm_service
@@ -140,8 +141,41 @@ class ChatService:
             # 标记为处理中
             self.processing_files[chat_id] = {"processing": True, "file_name": filename}
             
-            # 保存上传的PDF
-            file_path = await pdf_service.save_uploaded_pdf(file_content, filename)
+            # 生成唯一文件ID作为paper_id
+            unique_id = f"upload_{str(uuid.uuid4())[:12]}"
+            logger.info(f"Generated unique ID for uploaded file: {unique_id}")
+            
+            # 创建上传文件夹（如果不存在）
+            upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "cached_pdfs", "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+            
+            # 保存文件到本地临时位置
+            temp_file_path = os.path.join(upload_dir, f"{unique_id}.pdf")
+            try:
+                async with aiofiles.open(temp_file_path, 'wb') as f:
+                    await f.write(file_content)
+                logger.info(f"Saved uploaded PDF content to {temp_file_path}")
+            except Exception as e:
+                logger.error(f"Failed to save uploaded PDF: {str(e)}")
+                self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                return False
+                
+            # 使用get_pdf_from_oss处理PDF文件
+            # 这里直接传递创建的文件ID，get_pdf_from_oss会负责处理路径和存储
+            file_path = await pdf_service.get_pdf_from_oss(unique_id, filename)
+            
+            # 删除临时文件
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                    logger.info(f"Removed temporary file: {temp_file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary file {temp_file_path}: {str(e)}")
+            
+            if not file_path or not os.path.exists(file_path):
+                logger.error(f"Failed to get valid file path for uploaded PDF: {filename}")
+                self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                return False
             
             # 检查是否是该会话的第一个PDF
             is_first_pdf = "files" not in self.active_chats[chat_id]
@@ -160,6 +194,7 @@ class ChatService:
             self.active_chats[chat_id]["file_path"] = file_path
             
             # 为PDF创建向量存储
+            logger.info(f"Creating vector store for uploaded file: {file_path}")
             success = await pdf_service.create_vector_store(file_path, chat_id)
             
             # 更新处理状态
@@ -174,18 +209,114 @@ class ChatService:
                     "files_count": files_count
                 }
                 
-                logger.info(f"Successfully processed PDF for chat session {chat_id}. Total files: {files_count}")
+                logger.info(f"Successfully processed uploaded PDF for chat session {chat_id}. Total files: {files_count}")
                 return True
             else:
                 # 如果处理失败，也标记为处理完成
                 self.processing_files[chat_id] = {"processing": False, "file_name": filename}
-                logger.error(f"Failed to process PDF for chat session {chat_id}")
+                logger.error(f"Failed to process uploaded PDF for chat session {chat_id}")
                 return False
                 
         except Exception as e:
             # 发生异常时，标记为处理完成
             self.processing_files[chat_id] = {"processing": False, "file_name": filename}
-            logger.error(f"Error processing PDF for chat session {chat_id}: {str(e)}")
+            logger.error(f"Error processing uploaded PDF for chat session {chat_id}: {str(e)}", exc_info=True)
+            return False
+    
+    async def process_paper(self, chat_id: str, paper_id: str) -> bool:
+        """处理论文PDF并关联到聊天会话"""
+        if chat_id not in self.active_chats:
+            logger.error(f"Chat session not found: {chat_id}")
+            return False
+        
+        # 更新会话活动时间
+        self._update_session_activity(chat_id)
+        
+        try:
+            # 标记为处理中
+            filename = f"{paper_id}.pdf"
+            self.processing_files[chat_id] = {"processing": True, "file_name": filename}
+            
+            # 获取论文数据，仅作日志记录
+            paper = await db_service.get_paper_by_id(paper_id)
+            logger.info(f"Processing paper {paper_id}: {paper.title if paper else 'Unknown title'}")
+            
+            # 从OSS获取PDF
+            logger.info(f"Requesting PDF from OSS for paper_id: {paper_id}")
+            file_path = await pdf_service.get_pdf_from_oss(paper_id)
+            
+            if not file_path:
+                logger.error(f"Failed to get PDF for paper: {paper_id} - returned empty file path")
+                self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                return False
+            
+            # 验证文件是否实际存在
+            if not os.path.exists(file_path):
+                logger.error(f"PDF file path returned but file does not exist: {file_path}")
+                self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                return False
+                
+            logger.info(f"Successfully obtained PDF file at: {file_path}")
+            
+            # 检查是否是该会话的第一个PDF
+            is_first_pdf = "files" not in self.active_chats[chat_id]
+            
+            # 初始化文件列表（如果不存在）
+            if is_first_pdf:
+                self.active_chats[chat_id]["files"] = []
+                
+            # 添加当前文件到文件列表
+            self.active_chats[chat_id]["files"].append({
+                "file_path": file_path,
+                "filename": filename,
+                "paper_id": paper_id
+            })
+            
+            # 更新当前活跃文件路径
+            self.active_chats[chat_id]["file_path"] = file_path
+            
+            # 更新会话关联的论文ID
+            self.active_chats[chat_id]["paper_id"] = paper_id
+            
+            # 为PDF创建向量存储
+            logger.info(f"Creating vector store for file: {file_path}")
+            success = await pdf_service.create_vector_store(file_path, chat_id)
+            logger.info(f"Vector store creation result: {'success' if success else 'failed'}")
+            
+            # 更新处理状态
+            if success:
+                # 获取当前会话中的文件总数
+                files_count = len(self.active_chats[chat_id].get("files", []))
+                
+                # 更新处理状态，包含文件数量信息
+                self.processing_files[chat_id] = {
+                    "processing": False, 
+                    "file_name": filename,
+                    "files_count": files_count
+                }
+                
+                # 添加系统消息表示论文已加载
+                if paper:
+                    paper_title = paper.title
+                    self.add_message(
+                        chat_id,
+                        "system",
+                        f"Paper loaded: '{paper_title}' (ID: {paper_id}). You can now ask questions about this paper."
+                    )
+                    logger.info(f"Added system message about loaded paper '{paper_title}'")
+                
+                logger.info(f"Successfully processed PDF for paper {paper_id} in chat session {chat_id}. Total files: {files_count}")
+                return True
+            else:
+                # 如果处理失败，也标记为处理完成
+                self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                logger.error(f"Failed to process PDF for paper {paper_id} in chat session {chat_id}")
+                return False
+                
+        except Exception as e:
+            # 发生异常时，标记为处理完成
+            self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+            logger.error(f"Error processing paper {paper_id} for chat session {chat_id}: {str(e)}", exc_info=True)
             return False
     
     async def end_chat_session(self, chat_id: str) -> bool:

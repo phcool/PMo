@@ -43,6 +43,10 @@ class ChatResponseChunk:
             "done": self.done
         }, ensure_ascii=False)
 
+# Request model for attaching paper to chat
+class AttachPaperRequest(BaseModel):
+    paper_id: str
+
 # Create a new chat session
 @router.post("/sessions", response_model=ChatSessionResponse)
 async def create_chat_session(
@@ -353,4 +357,64 @@ async def delete_file(
     raise HTTPException(
         status_code=404,
         detail=f"File with ID {file_id} not found"
-    ) 
+    )
+
+# Attach paper to chat session
+@router.post("/sessions/{chat_id}/attach_paper")
+async def attach_paper_to_chat(
+    chat_id: str = Path(..., description="Chat session ID"),
+    request: AttachPaperRequest = Body(..., description="Request with paper ID to attach")
+):
+    """
+    Download a paper PDF from arXiv and associate it with a chat session
+    """
+    # Check if chat session exists
+    if chat_id not in chat_service.active_chats:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {chat_id} not found"
+        )
+    
+    # Validate paper exists in database
+    paper = await db_service.get_paper_by_id(request.paper_id)
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Paper with ID {request.paper_id} not found"
+        )
+    
+    try:
+        # Process paper PDF
+        success = await chat_service.process_paper(chat_id, request.paper_id)
+        
+        if not success:
+            logger.warning(f"Failed to process paper {request.paper_id} for chat session {chat_id}. PDF not available.")
+            # 返回更明确的错误信息，使用404状态码
+            raise HTTPException(
+                status_code=404, 
+                detail=f"PDF for paper {request.paper_id} is not available in our system. The paper is in our database, but we don't have the PDF file."
+            )
+        
+        return {"success": True, "message": f"Paper {request.paper_id} successfully attached to chat session"}
+    
+    except HTTPException as http_error:
+        # 直接重新抛出HTTP异常，保留原始状态码
+        logger.warning(f"HTTP exception when attaching paper: {http_error.detail} (status code: {http_error.status_code})")
+        raise http_error
+    except Exception as e:
+        # 记录详细的错误信息，包括堆栈跟踪
+        logger.error(f"Error attaching paper {request.paper_id} to chat session {chat_id}: {str(e)}", exc_info=True)
+        # 检查错误信息中是否包含"PDF not found"或类似提示
+        error_str = str(e).lower()
+        if "pdf not found" in error_str or "404" in error_str or "not available" in error_str or "no such file" in error_str:
+            # 这是PDF不存在的错误，返回404而不是500
+            raise HTTPException(
+                status_code=404,
+                detail=f"PDF for paper {request.paper_id} could not be retrieved. Error: {str(e)}"
+            )
+        else:
+            # 其他未预期的错误
+            raise HTTPException(
+                status_code=500,
+                detail=f"An unexpected error occurred while processing the paper: {str(e)}"
+            ) 

@@ -22,10 +22,8 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
+import { defineComponent, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import userService from './services/user'
-import api from './services/api'
 import { chatSessionStore } from './stores/chatSession'
 
 export default defineComponent({
@@ -40,16 +38,6 @@ export default defineComponent({
         `scrollPos-${path}`,
         window.scrollY.toString()
       );
-    };
-
-    // 更新用户访问记录
-    const updateUserVisit = async (): Promise<void> => {
-      try {
-        const userId = userService.getUserId();
-        await api.saveUserPreferences({});
-      } catch (error) {
-        console.error('Failed to update user visit records:', error);
-      }
     };
     
     // 初始化全局聊天会话
@@ -77,14 +65,6 @@ export default defineComponent({
       // 添加导航钩子
       router.beforeEach((to, from) => {
         saveScrollPosition(from.fullPath);
-      });
-      
-      // 更新用户访问记录
-      updateUserVisit();
-
-      // 路由变化时更新用户访问记录
-      router.afterEach(() => {
-        updateUserVisit();
       });
       
       // 初始化全局聊天会话

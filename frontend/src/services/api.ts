@@ -35,20 +35,11 @@ interface ProcessingStatus {
 }
 
 /**
- * User preferences interface
- */
-interface UserPreferences {
-  [key: string]: any;
-}
-
-/**
  * API Service interface
  */
 export interface IApiService {
   getRecentPapers(limit?: number, offset?: number): Promise<Paper[]>;
   getPaperById(paperId: string): Promise<Paper>;
-  getPaperPdfUrl(paperId: string): string;
-  cleanupSessionFiles(sessionId: string): Promise<any>;
   countPapers(): Promise<number>;
   fetchPapers(categories?: string[], maxResults?: number): Promise<{ count: number }>;
   searchPapers(searchRequest: SearchRequest): Promise<SearchResponse>;
@@ -57,8 +48,6 @@ export interface IApiService {
   uploadPdfToChat(chatId: string, file: File): Promise<FileUploadResponse>;
   sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   endChatSession(chatId: string): Promise<any>;
-  getUserPreferences(): Promise<UserPreferences>;
-  saveUserPreferences(preferences: UserPreferences): Promise<any>;
   saveSearchHistory(query: string): Promise<any>;
   getUserSearchHistory(): Promise<Array<{query: string, timestamp: string}>>;
   getRecommendedPapers(limit?: number, offset?: number): Promise<Paper[]>;
@@ -130,16 +119,6 @@ class ApiService implements IApiService {
       console.error(`Failed to get paper ${paperId}:`, error);
       throw error;
     }
-  }
-
-  /**
-   * Get the URL for a paper's PDF from OSS or fallback to original URL
-   * @param paperId The ID of the paper
-   * @returns The URL to the PDF file
-   */
-  getPaperPdfUrl(paperId: string): string {
-    // 使用后端API构建OSS或回退URL
-    return `/api/papers/${paperId}/pdf`;
   }
 
   /**
@@ -374,35 +353,6 @@ class ApiService implements IApiService {
   }
   
   /**
-   * Get user preferences
-   * @returns Promise with user preferences
-   */
-  async getUserPreferences(): Promise<UserPreferences> {
-    try {
-      const response = await this.api.get('/api/user/preferences');
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get user preferences:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Save user preferences
-   * @param preferences User preferences to save
-   * @returns Promise with result
-   */
-  async saveUserPreferences(preferences: UserPreferences): Promise<any> {
-    try {
-      const response = await this.api.post('/api/user/preferences', preferences);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to save user preferences:', error);
-      throw error;
-    }
-  }
-  
-  /**
    * Save search history
    * @param query Search query to save
    * @returns Promise with result
@@ -456,7 +406,7 @@ class ApiService implements IApiService {
    */
   async recordPaperView(paperId: string): Promise<any> {
     try {
-      const response = await this.api.post('/api/user/paper-views', { paper_id: paperId });
+      const response = await this.api.post(`/api/user/paper-view/${paperId}`, {});
       return response.data;
     } catch (error) {
       console.error('Failed to record paper view:', error);
@@ -493,21 +443,6 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to get processing status:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Cleanup temporary PDF files for a session
-   * @param sessionId The session ID to clean up files for
-   * @returns Promise with cleanup result
-   */
-  async cleanupSessionFiles(sessionId: string): Promise<any> {
-    try {
-      const response = await this.api.delete(`/api/papers/cleanup-session/${sessionId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to cleanup session files:', error);
       throw error;
     }
   }

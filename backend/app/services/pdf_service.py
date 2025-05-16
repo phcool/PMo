@@ -13,6 +13,9 @@ import time
 import uuid
 import glob
 from datetime import datetime, timedelta
+import aiohttp
+import oss2
+from urllib.parse import quote
 
 from app.services.vector_search_service import vector_search_service
 from app.services.llm_service import llm_service
@@ -25,11 +28,18 @@ class PdfService:
     def __init__(self):
         # Configuration
         self.project_root = Path(__file__).parent.parent.parent
-        self.upload_dir = self.project_root / "uploads" / "pdfs"
+        self.upload_dir = self.project_root / "cached_pdfs"
         self.chunk_size = int(os.getenv("PDF_CHUNK_SIZE", "1000"))  # Characters per chunk
         self.chunk_overlap = int(os.getenv("PDF_CHUNK_OVERLAP", "200"))  # Overlap between chunks
         self.max_tokens_per_chunk = int(os.getenv("PDF_MAX_TOKENS", "4000"))  # Max tokens for each chunk
         self.file_expiry_hours = float(os.getenv("PDF_FILE_EXPIRY_HOURS", "0.5"))  # 文件过期时间（小时），默认30分钟
+        
+        # 阿里云 OSS 配置
+        self.oss_access_key_id = os.getenv("OSS_ACCESS_KEY_ID", "")
+        self.oss_access_key_secret = os.getenv("OSS_ACCESS_KEY_SECRET", "")
+        self.oss_endpoint = os.getenv("OSS_ENDPOINT", "")
+        self.oss_bucket_name = os.getenv("OSS_BUCKET_NAME", "")
+        self.oss_papers_prefix = os.getenv("OSS_PAPERS_PREFIX", "papers/")
         
         # 文件访问记录，用于跟踪文件最后访问时间 {"file_path": {"last_access": timestamp, "chat_id": "chat_id"}}
         self.file_access_records = {}
@@ -42,43 +52,186 @@ class PdfService:
         
         logger.info(f"PDF Service initialized. Upload dir: {self.upload_dir}, Chunk size: {self.chunk_size}, Overlap: {self.chunk_overlap}, File expiry: {self.file_expiry_hours}h")
     
-    async def save_uploaded_pdf(self, file_content: bytes, filename: str) -> str:
+    async def get_pdf_from_oss(self, paper_id: str, filename: str = None) -> str:
         """
-        Save an uploaded PDF file to disk with improved naming
+        根据论文ID从阿里云OSS获取PDF文件并保存到本地
         
         Args:
-            file_content: Raw PDF file content
-            filename: Original filename
+            paper_id: 论文ID，如 "2303.12345"、"2505.09615v1"等
+            filename: 可选的自定义文件名
             
         Returns:
-            Path to the saved file
+            保存的本地文件路径
         """
-        # 生成更安全的唯一文件名
-        timestamp = int(time.time())
-        unique_id = str(uuid.uuid4())[:8]  # 使用UUID前8位字符作为唯一标识
-        
-        # 提取原始文件名（不含扩展名）和扩展名
-        original_name, ext = os.path.splitext(filename)
-        if not ext.lower() == '.pdf':
-            ext = '.pdf'  # 确保扩展名为.pdf
+        try:
+            # 日志记录请求细节
+            logger.info(f"Attempting to get PDF from OSS for paper_id: {paper_id}, custom filename: {filename}")
             
-        # 将原始文件名转换为安全的格式
-        safe_name = re.sub(r'[^\w\-_\.]', '_', original_name)
-        safe_name = safe_name[:50]  # 限制文件名长度
-        
-        # 组合最终文件名：时间戳_UUID_安全文件名.pdf
-        final_filename = f"{timestamp}_{unique_id}_{safe_name}{ext}"
-        file_path = self.upload_dir / final_filename
-        
-        # 保存文件
-        async with aiofiles.open(file_path, 'wb') as f:
-            await f.write(file_content)
-        
-        # 记录文件访问时间
-        self._update_file_access(str(file_path), None)  # 初始时chat_id未知
-        
-        logger.info(f"Saved uploaded PDF to {file_path}")
-        return str(file_path)
+            # 清理paper_id，移除可能的非法字符
+            sanitized_paper_id = re.sub(r'[^\w\.-]', '_', paper_id)
+            if sanitized_paper_id != paper_id:
+                logger.info(f"Sanitized paper_id from '{paper_id}' to '{sanitized_paper_id}'")
+                paper_id = sanitized_paper_id
+                
+            # 移除版本号，如v1、v2等
+            paper_id_without_version = re.sub(r'v\d+$', '', paper_id)
+            
+            # 尝试各种可能的键格式
+            possible_keys = []
+            
+            # 从OSS中提取年月部分
+            match_standard = re.match(r'^(\d{2})(\d{2})\.\d+', paper_id)
+            match_new_format = re.match(r'^(\d{4})\.(\d{5})', paper_id)
+            
+            # 标准格式：如2303.12345
+            if match_standard:
+                year, month = match_standard.groups()
+                full_year = f"20{year}"  # 假设所有论文都是21世纪的
+                
+                # 使用两位数年月路径
+                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id_without_version}.pdf")
+                
+                # 使用四位数年份路径
+                possible_keys.append(f"{self.oss_papers_prefix}{full_year}/{month}/{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{full_year}/{month}/{paper_id_without_version}.pdf")
+                
+                # 创建对应的本地目录结构
+                local_dir = self.upload_dir / year / month
+                logger.info(f"Detected standard format paper ID with year={year}, month={month}")
+                
+            # 新格式：如2505.09615 (月份可能超过12，如25年5月)
+            elif match_new_format:
+                year, paper_number = match_new_format.groups()
+                # 提取年份的最后两位和首位数字作为"月份"
+                short_year = year[2:]
+                month = year[0]
+                
+                # 使用两位数年月路径
+                possible_keys.append(f"{self.oss_papers_prefix}{short_year}/{month}/{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{short_year}/{month}/{paper_id_without_version}.pdf")
+                
+                # 使用四位数年份路径
+                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id_without_version}.pdf")
+                
+                # 直接使用四位数年份作为目录
+                possible_keys.append(f"{self.oss_papers_prefix}{year}/{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{year}/{paper_id_without_version}.pdf")
+                
+                # 创建对应的本地目录结构
+                local_dir = self.upload_dir / short_year / month
+                logger.info(f"Detected new format paper ID with year={year}, month={month}")
+                
+            else:
+                # 对于不匹配标准格式的ID，尝试几种常见路径
+                possible_keys.append(f"{self.oss_papers_prefix}{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{paper_id_without_version}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{paper_id}/{paper_id}.pdf")
+                possible_keys.append(f"{self.oss_papers_prefix}{paper_id}/{paper_id_without_version}.pdf")
+                
+                # 对于上传的文件，检查是否以upload_开头
+                if paper_id.startswith('upload_'):
+                    possible_keys.append(f"{self.oss_papers_prefix}uploads/{paper_id}.pdf")
+                    local_dir = self.upload_dir / "uploads"
+                else:
+                    # 使用一个特殊目录保存非标准ID的文件
+                    local_dir = self.upload_dir / "other"
+                
+                logger.info(f"Non-standard paper ID format: {paper_id}, will try multiple path patterns")
+            
+            # 确保本地目录存在
+            os.makedirs(local_dir, exist_ok=True)
+            
+            # 使用与OSS相同的文件名保存到本地
+            local_filename = f"{paper_id}.pdf"
+            if filename:  # 如果提供了特定文件名，保存一个备份文件名
+                name, ext = os.path.splitext(filename)
+                if not ext.lower() == '.pdf':
+                    ext = '.pdf'
+                local_filename = f"{paper_id}_{name}{ext}"
+            
+            # 完整的本地文件路径
+            local_file_path = local_dir / local_filename
+            
+            # 检查文件是否已经存在本地
+            if await aiofiles.os.path.exists(local_file_path):
+                logger.info(f"PDF file already exists locally at {local_file_path}")
+                # 更新文件访问时间
+                self._update_file_access(str(local_file_path), None)
+                return str(local_file_path)
+            
+            # 记录OSS配置信息（排除敏感信息）
+            logger.info(f"PDF file not found locally, will try to get from OSS")
+            logger.info(f"Using OSS endpoint: {self.oss_endpoint}, bucket: {self.oss_bucket_name}")
+            
+            # 初始化OSS客户端
+            try:
+                auth = oss2.Auth(self.oss_access_key_id, self.oss_access_key_secret)
+                bucket = oss2.Bucket(auth, self.oss_endpoint, self.oss_bucket_name)
+                logger.info("Successfully initialized OSS client")
+            except Exception as e:
+                logger.error(f"Failed to initialize OSS client: {str(e)}")
+                return ""
+            
+            # 从OSS下载文件
+            loop = asyncio.get_event_loop()
+            
+            # 使用异步运行同步的OSS操作
+            def download_from_oss():
+                oss_key = None
+                file_content = None
+                
+                # 尝试所有可能的键模式
+                for key in possible_keys:
+                    try:
+                        logger.info(f"Trying OSS key: {key}")
+                        if bucket.object_exists(key):
+                            logger.info(f"Found object in OSS with key: {key}")
+                            # 下载文件到临时内存
+                            result = bucket.get_object(key)
+                            file_content = result.read()
+                            oss_key = key
+                            break
+                    except oss2.exceptions.NoSuchKey:
+                        logger.info(f"OSS key not found: {key}")
+                    except oss2.exceptions.OssError as e:
+                        logger.error(f"OSS error with key {key}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"Unexpected error with key {key}: {str(e)}")
+                
+                if file_content is None:
+                    all_keys = ", ".join(possible_keys)
+                    logger.error(f"PDF file not found in OSS after trying all patterns: {all_keys}")
+                    return None
+                
+                return file_content
+            
+            # 异步执行OSS下载
+            file_content = await loop.run_in_executor(None, download_from_oss)
+            
+            if file_content is None:
+                logger.error(f"Failed to download PDF for paper ID: {paper_id}")
+                return ""
+            
+            # 保存到本地文件
+            try:
+                async with aiofiles.open(local_file_path, 'wb') as f:
+                    await f.write(file_content)
+                logger.info(f"Successfully saved downloaded PDF to {local_file_path} ({len(file_content)} bytes)")
+            except Exception as e:
+                logger.error(f"Failed to save PDF file to {local_file_path}: {str(e)}")
+                return ""
+            
+            # 记录文件访问时间
+            self._update_file_access(str(local_file_path), None)  # 初始时chat_id未知
+            
+            logger.info(f"Successfully downloaded and saved PDF from OSS to {local_file_path}")
+            return str(local_file_path)
+            
+        except Exception as e:
+            logger.error(f"Error getting PDF from OSS for paper ID {paper_id}: {str(e)}", exc_info=True)
+            return ""
     
     def _update_file_access(self, file_path: str, chat_id: Optional[str] = None):
         """更新文件访问记录"""
@@ -110,74 +263,96 @@ class PdfService:
         current_time = time.time()
         expiry_seconds = self.file_expiry_hours * 3600
         
-        # 1. 清理记录中过期的文件
-        expired_files = []
-        for file_path, record in list(self.file_access_records.items()):
-            last_access = record["last_access"]
-            chat_id = record.get("chat_id")
-            
-            # 检查是否为活跃会话中的文件
-            if not self._is_file_in_active_chat(file_path, chat_id):
-                # 检查是否已过期
-                if current_time - last_access > expiry_seconds:
-                    expired_files.append(file_path)
-                    del self.file_access_records[file_path]
-        
-        # 2. 清理所有没有关联会话的文件，不考虑时间
+        # 获取所有活跃的聊天会话ID和它们引用的文件
         from app.services.chat_service import chat_service
-        active_file_paths = set()
+        active_chat_files = {}  # { file_path: [chat_id1, chat_id2, ...] }
         
-        # 收集所有活跃会话中的文件路径
+        # 1. 收集所有活跃会话中引用的文件路径
         for chat_id, data in chat_service.active_chats.items():
-            file_path = data.get("file_path")
-            if file_path:
-                active_file_paths.add(file_path)
+            file_paths = data.get("file_paths", [])
+            if not file_paths and "file_path" in data:  # 兼容旧版本单文件引用
+                file_paths = [data["file_path"]]
+            
+            for file_path in file_paths:
+                if file_path:
+                    if file_path not in active_chat_files:
+                        active_chat_files[file_path] = []
+                    active_chat_files[file_path].append(chat_id)
         
-        # 找出所有没有活跃会话引用的文件
-        for file_path in list(self.file_access_records.keys()):
-            if file_path not in active_file_paths:
-                # 只有当文件至少存在30分钟后才删除未引用的文件，防止误删刚上传的文件
-                record = self.file_access_records[file_path]
-                file_age = current_time - record.get("last_access", current_time)
-                if file_age > expiry_seconds:
-                    if file_path not in expired_files:  # 避免重复添加
-                        expired_files.append(file_path)
-                        del self.file_access_records[file_path]
+        # 2. 整理文件访问记录，找出需要检查的文件
+        files_to_check = {}  # { file_path: last_access_time }
+        for file_path, record in list(self.file_access_records.items()):
+            # 如果文件不在磁盘上，直接从记录中删除
+            if not await aiofiles.os.path.exists(file_path):
+                del self.file_access_records[file_path]
+                continue
+                
+            last_access = record["last_access"]
+            associated_chat_ids = []
+            
+            # 收集所有与此文件关联的聊天ID
+            if "chat_id" in record and record["chat_id"]:
+                associated_chat_ids.append(record["chat_id"])
+            
+            # 添加从active_chat_files找到的相关聊天ID
+            if file_path in active_chat_files:
+                associated_chat_ids.extend(active_chat_files[file_path])
+            
+            # 如果文件与活跃会话关联，更新最后访问时间
+            if associated_chat_ids:
+                # 文件被活跃会话引用，刷新最后访问时间
+                record["last_access"] = current_time
+                continue
+            
+            # 如果文件没有关联任何会话且已过期，加入检查列表
+            if current_time - last_access > expiry_seconds:
+                files_to_check[file_path] = last_access
         
-        # 3. 删除过期或未引用的文件
+        # 3. 检查文件是否是缓存结构中的子目录文件
+        files_to_delete = []
+        for file_path in files_to_check:
+            # 确保文件路径是upload_dir下的文件
+            rel_path = Path(file_path).relative_to(self.upload_dir) if str(file_path).startswith(str(self.upload_dir)) else None
+            if rel_path:
+                files_to_delete.append(file_path)
+            else:
+                # 不是缓存目录下的文件，保留记录但不删除
+                logger.warning(f"File {file_path} is not in cache directory, skipping deletion")
+        
+        # 4. 删除确认无引用且过期的文件
         deleted_count = 0
-        for file_path in expired_files:
+        for file_path in files_to_delete:
             try:
                 if await aiofiles.os.path.exists(file_path):
                     await aiofiles.os.remove(file_path)
                     deleted_count += 1
-                    logger.info(f"Deleted file: {file_path}")
+                    logger.info(f"Deleted expired file with no active references: {file_path}")
+                    
+                # 从记录中移除
+                if file_path in self.file_access_records:
+                    del self.file_access_records[file_path]
             except Exception as e:
                 logger.error(f"Error deleting file {file_path}: {str(e)}")
         
-        # 4. 查找孤儿文件（文件系统中存在但不在访问记录中的文件）
-        try:
-            all_files = set(glob.glob(str(self.upload_dir / "*.pdf")))
-            tracked_files = set(self.file_access_records.keys())
-            orphan_files = all_files - tracked_files
-            
-            # 删除所有孤儿文件，它们不属于任何会话
-            for file_path in orphan_files:
-                try:
-                    # 获取文件创建时间
-                    file_stat = await aiofiles.os.stat(file_path)
-                    create_time = file_stat.st_ctime
-                    # 确保文件至少存在了一段时间，避免删除正在上传的文件
-                    if current_time - create_time > 300:  # 5分钟保护期
-                        await aiofiles.os.remove(file_path)
-                        deleted_count += 1
-                        logger.info(f"Deleted orphan file: {file_path}")
-                except Exception as e:
-                    logger.error(f"Error processing orphan file {file_path}: {str(e)}")
-        except Exception as e:
-            logger.error(f"Error finding orphan files: {str(e)}")
+        # 5. 清理空目录
+        await self._cleanup_empty_directories(self.upload_dir)
         
-        logger.info(f"Cleanup completed. Deleted {deleted_count} files.")
+        logger.info(f"Cleanup completed. Deleted {deleted_count} unreferenced files.")
+    
+    async def _cleanup_empty_directories(self, parent_dir):
+        """递归清理空目录"""
+        try:
+            for item in os.listdir(parent_dir):
+                dir_path = os.path.join(parent_dir, item)
+                if os.path.isdir(dir_path):
+                    await self._cleanup_empty_directories(dir_path)
+                    
+            # 检查目录是否为空（在清理完子目录后）
+            if not os.listdir(parent_dir) and parent_dir != self.upload_dir:
+                os.rmdir(parent_dir)
+                logger.info(f"Removed empty directory: {parent_dir}")
+        except Exception as e:
+            logger.error(f"Error cleaning up directory {parent_dir}: {str(e)}")
     
     def _is_file_in_active_chat(self, file_path: str, chat_id: Optional[str]) -> bool:
         """检查文件是否属于活跃的聊天会话"""
@@ -502,6 +677,44 @@ class PdfService:
         
         logger.info(f"Retrieved {len(top_chunks)} relevant chunks for query in chat session: {chat_id}")
         return top_chunks
+    
+    async def save_uploaded_pdf(self, file_content: bytes, filename: str) -> str:
+        """
+        Save uploaded PDF file to disk
+        
+        Args:
+            file_content: PDF file content bytes
+            filename: Original filename
+            
+        Returns:
+            Path to saved file
+        """
+        try:
+            logger.info(f"Saving uploaded PDF: {filename}")
+            
+            # Sanitize filename
+            safe_filename = re.sub(r'[^\w\.-]', '_', filename)
+            if safe_filename != filename:
+                logger.info(f"Sanitized filename from '{filename}' to '{safe_filename}'")
+                filename = safe_filename
+            
+            # Generate unique filename to avoid conflicts
+            file_id = str(uuid.uuid4())
+            unique_filename = f"{file_id}_{filename}"
+            
+            # Save to upload directory
+            file_path = os.path.join(self.upload_dir, unique_filename)
+            
+            # Write file to disk
+            async with aiofiles.open(file_path, 'wb') as f:
+                await f.write(file_content)
+                
+            logger.info(f"Successfully saved uploaded PDF to {file_path} ({len(file_content)} bytes)")
+            return file_path
+            
+        except Exception as e:
+            logger.error(f"Error saving uploaded PDF {filename}: {str(e)}")
+            return ""
 
 # Instantiate a singleton
 pdf_service = PdfService() 
