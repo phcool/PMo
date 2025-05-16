@@ -42,20 +42,6 @@ interface UserPreferences {
 }
 
 /**
- * PDF download for chat response interface
- */
-interface PdfDownloadResponse {
-  success: boolean;
-  message: string;
-  file_info?: {
-    id: string;
-    name: string;
-    size: number;
-    upload_time: string;
-  };
-}
-
-/**
  * API Service interface
  */
 export interface IApiService {
@@ -77,7 +63,6 @@ export interface IApiService {
   recordPaperView(paperId: string): Promise<any>;
   getUserPaperViews(limit?: number, days?: number): Promise<Array<{paper: Paper, view_count: number}>>;
   getProcessingStatus(chatId: string): Promise<ProcessingStatus>;
-  downloadPdfForChat(paperId: string, chatId: string): Promise<PdfDownloadResponse>;
 }
 
 /**
@@ -496,25 +481,6 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to get processing status:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Download a paper's PDF from OSS and associate it with a chat session
-   * @param paperId Paper ID
-   * @param chatId Chat session ID
-   * @returns Promise with download result
-   */
-  async downloadPdfForChat(paperId: string, chatId: string): Promise<PdfDownloadResponse> {
-    try {
-      const response = await this.api.post('/api/papers/download-pdf-for-chat', {
-        paper_id: paperId,
-        chat_id: chatId
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Failed to download PDF for chat session:', error);
       throw error;
     }
   }

@@ -30,11 +30,7 @@
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
-      <router-link 
-        :to="{ name: 'chat' }" 
-        class="action-button chat-button"
-        @click.native="handleChatClick"
-      >
+      <router-link :to="{ name: 'chat' }" class="action-button chat-button">
         Chat
       </router-link>
     </div>
@@ -45,7 +41,6 @@
 import { defineComponent, computed } from 'vue'
 import { getCategoryLabel } from '../types/paper'
 import api from '../services/api'
-import { chatSessionStore } from '../stores/chatSession'
 
 export default defineComponent({
   name: 'PaperCard',
@@ -105,34 +100,12 @@ export default defineComponent({
       }, 0);
     };
     
-    // 处理Chat按钮点击事件
-    const handleChatClick = async () => {
-      try {
-        console.log('Chat button clicked for paper:', props.paper.paper_id);
-        
-        // 记录点击事件
-        recordView();
-        
-        // 传递论文ID给本地存储，将在ChatView组件中处理
-        localStorage.setItem('pendingChatPaperId', props.paper.paper_id);
-        
-        // 确保已经有全局会话
-        if (!chatSessionStore.hasActiveSession()) {
-          await chatSessionStore.createChatSession();
-        }
-        
-      } catch (error) {
-        console.error('Error preparing chat with paper:', error);
-      }
-    };
-    
     return {
       authorText,
       formattedDate,
       truncatedAbstract,
       getCategoryLabel,
-      recordView,
-      handleChatClick
+      recordView
     };
   }
 })

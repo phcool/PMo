@@ -221,34 +221,3 @@ async def get_user_paper_views(
     )
     
     return views 
-
-@router.post("/paper-views")
-async def record_paper_view_from_body(
-    request_data: Dict[str, str] = Body(..., description="Paper view data"),
-    x_user_id: Optional[str] = Header(None, description="User unique identifier")
-):
-    """
-    Record user paper viewing history using request body
-    """
-    # If no user ID is provided, don't record viewing
-    if not x_user_id:
-        return {
-            "success": False,
-            "message": "No user ID provided, viewing record not saved"
-        }
-    
-    paper_id = request_data.get("paper_id")
-    if not paper_id:
-        raise HTTPException(status_code=400, detail="Missing required parameter 'paper_id'")
-    
-    success = await db_service.record_paper_view(user_id=x_user_id, paper_id=paper_id)
-    
-    if not success:
-        logger.warning(f"Failed to record paper viewing history: user_id={x_user_id}, paper_id={paper_id}")
-    
-    return {
-        "success": success,
-        "user_id": x_user_id,
-        "paper_id": paper_id,
-        "message": "Viewing record saved" if success else "Failed to record viewing record"
-    } 

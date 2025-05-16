@@ -63,11 +63,7 @@
               <router-link v-if="paper.paper_id" :to="{ name: 'paper-detail', params: { id: paper.paper_id }}" class="paper-button">
                 Details
               </router-link>
-              <router-link 
-                :to="{ name: 'chat' }" 
-                class="paper-button chat-button"
-                @click.native="handleChatClick(paper)"
-              >
+              <router-link :to="{ name: 'chat' }" class="paper-button chat-button">
                 Chat
               </router-link>
             </div>
@@ -86,7 +82,6 @@
 
 <script>
 import api from '../services/api'
-import { chatSessionStore } from '../stores/chatSession'
 
 export default {
   name: 'SearchView',
@@ -126,23 +121,6 @@ export default {
     sessionStorage.setItem(`scrollPos-${path}`, window.scrollY.toString());
   },
   methods: {
-    handleChatClick(paper) {
-      try {
-        console.log('Chat button clicked for paper:', paper.paper_id);
-        
-        // 传递论文ID给本地存储，将在ChatView组件中处理
-        localStorage.setItem('pendingChatPaperId', paper.paper_id);
-        
-        // 确保已经有全局会话
-        if (!chatSessionStore.hasActiveSession()) {
-          chatSessionStore.createChatSession();
-        }
-        
-      } catch (error) {
-        console.error('Error preparing chat with paper:', error);
-      }
-    },
-    
     async performSearch() {
       if (!this.searchQuery.trim()) return
       
