@@ -388,33 +388,16 @@ async def attach_paper_to_chat(
         success = await chat_service.process_paper(chat_id, request.paper_id)
         
         if not success:
-            logger.warning(f"Failed to process paper {request.paper_id} for chat session {chat_id}. PDF not available.")
-            # 返回更明确的错误信息，使用404状态码
             raise HTTPException(
-                status_code=404, 
-                detail=f"PDF for paper {request.paper_id} is not available in our system. The paper is in our database, but we don't have the PDF file."
+                status_code=422, 
+                detail=f"Failed to process paper {request.paper_id}. The PDF might not be available or there could be an issue with the processing."
             )
         
         return {"success": True, "message": f"Paper {request.paper_id} successfully attached to chat session"}
     
-    except HTTPException as http_error:
-        # 直接重新抛出HTTP异常，保留原始状态码
-        logger.warning(f"HTTP exception when attaching paper: {http_error.detail} (status code: {http_error.status_code})")
-        raise http_error
     except Exception as e:
-        # 记录详细的错误信息，包括堆栈跟踪
-        logger.error(f"Error attaching paper {request.paper_id} to chat session {chat_id}: {str(e)}", exc_info=True)
-        # 检查错误信息中是否包含"PDF not found"或类似提示
-        error_str = str(e).lower()
-        if "pdf not found" in error_str or "404" in error_str or "not available" in error_str or "no such file" in error_str:
-            # 这是PDF不存在的错误，返回404而不是500
-            raise HTTPException(
-                status_code=404,
-                detail=f"PDF for paper {request.paper_id} could not be retrieved. Error: {str(e)}"
-            )
-        else:
-            # 其他未预期的错误
-            raise HTTPException(
-                status_code=500,
-                detail=f"An unexpected error occurred while processing the paper: {str(e)}"
-            ) 
+        logger.error(f"Error attaching paper {request.paper_id} to chat session {chat_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        ) 

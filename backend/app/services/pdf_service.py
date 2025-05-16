@@ -57,7 +57,7 @@ class PdfService:
         根据论文ID从阿里云OSS获取PDF文件并保存到本地
         
         Args:
-            paper_id: 论文ID，如 "2303.12345"、"2505.09615v1"等
+            paper_id: 论文ID，如 "2303.12345" 或 "2505_09615v1"
             filename: 可选的自定义文件名
             
         Returns:
@@ -72,73 +72,36 @@ class PdfService:
             if sanitized_paper_id != paper_id:
                 logger.info(f"Sanitized paper_id from '{paper_id}' to '{sanitized_paper_id}'")
                 paper_id = sanitized_paper_id
-                
-            # 移除版本号，如v1、v2等
-            paper_id_without_version = re.sub(r'v\d+$', '', paper_id)
             
-            # 尝试各种可能的键格式
-            possible_keys = []
+            # 匹配两种可能的论文ID格式
+            # 1. YYMM.xxxxx 格式 (如 2303.12345)
+            match_format1 = re.match(r'^(\d{2})(\d{2})\.(\d+)', paper_id)
+            # 2. YYMM_xxxxx 格式 (如 2505_09615v1)
+            match_format2 = re.match(r'^(\d{2})(\d{2})_(\d+v?\d*)', paper_id)
             
-            # 从OSS中提取年月部分
-            match_standard = re.match(r'^(\d{2})(\d{2})\.\d+', paper_id)
-            match_new_format = re.match(r'^(\d{4})\.(\d{5})', paper_id)
+            year = None
+            month = None
             
-            # 标准格式：如2303.12345
-            if match_standard:
-                year, month = match_standard.groups()
-                full_year = f"20{year}"  # 假设所有论文都是21世纪的
-                
-                # 使用两位数年月路径
-                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id_without_version}.pdf")
-                
-                # 使用四位数年份路径
-                possible_keys.append(f"{self.oss_papers_prefix}{full_year}/{month}/{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{full_year}/{month}/{paper_id_without_version}.pdf")
-                
+            if match_format1:
+                year, month, number = match_format1.groups()
+                # 使用标准格式 papers/YY/MM/YYMM.xxxxx.pdf
+                oss_key = f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf"
                 # 创建对应的本地目录结构
                 local_dir = self.upload_dir / year / month
-                logger.info(f"Detected standard format paper ID with year={year}, month={month}")
-                
-            # 新格式：如2505.09615 (月份可能超过12，如25年5月)
-            elif match_new_format:
-                year, paper_number = match_new_format.groups()
-                # 提取年份的最后两位和首位数字作为"月份"
-                short_year = year[2:]
-                month = year[0]
-                
-                # 使用两位数年月路径
-                possible_keys.append(f"{self.oss_papers_prefix}{short_year}/{month}/{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{short_year}/{month}/{paper_id_without_version}.pdf")
-                
-                # 使用四位数年份路径
-                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{year}/{month}/{paper_id_without_version}.pdf")
-                
-                # 直接使用四位数年份作为目录
-                possible_keys.append(f"{self.oss_papers_prefix}{year}/{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{year}/{paper_id_without_version}.pdf")
-                
+                logger.info(f"Detected format YYMM.xxxxx with year={year}, month={month}, OSS key={oss_key}")
+            elif match_format2:
+                year, month, number = match_format2.groups()
+                # 使用 papers/YY/MM/YYMM_xxxxx.pdf 格式
+                oss_key = f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf"
                 # 创建对应的本地目录结构
-                local_dir = self.upload_dir / short_year / month
-                logger.info(f"Detected new format paper ID with year={year}, month={month}")
-                
+                local_dir = self.upload_dir / year / month
+                logger.info(f"Detected format YYMM_xxxxx with year={year}, month={month}, OSS key={oss_key}")
             else:
-                # 对于不匹配标准格式的ID，尝试几种常见路径
-                possible_keys.append(f"{self.oss_papers_prefix}{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{paper_id_without_version}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{paper_id}/{paper_id}.pdf")
-                possible_keys.append(f"{self.oss_papers_prefix}{paper_id}/{paper_id_without_version}.pdf")
-                
-                # 对于上传的文件，检查是否以upload_开头
-                if paper_id.startswith('upload_'):
-                    possible_keys.append(f"{self.oss_papers_prefix}uploads/{paper_id}.pdf")
-                    local_dir = self.upload_dir / "uploads"
-                else:
-                    # 使用一个特殊目录保存非标准ID的文件
-                    local_dir = self.upload_dir / "other"
-                
-                logger.info(f"Non-standard paper ID format: {paper_id}, will try multiple path patterns")
+                # 对于不匹配标准格式的ID，直接使用整个ID
+                oss_key = f"{self.oss_papers_prefix}{paper_id}.pdf"
+                # 使用一个特殊目录保存非标准ID的文件
+                local_dir = self.upload_dir / "other"
+                logger.info(f"Non-standard paper ID format, using direct path with OSS key={oss_key}")
             
             # 确保本地目录存在
             os.makedirs(local_dir, exist_ok=True)
@@ -161,8 +124,9 @@ class PdfService:
                 self._update_file_access(str(local_file_path), None)
                 return str(local_file_path)
             
+            logger.info(f"PDF file not found locally, trying to get from OSS with key: {oss_key}")
+            
             # 记录OSS配置信息（排除敏感信息）
-            logger.info(f"PDF file not found locally, will try to get from OSS")
             logger.info(f"Using OSS endpoint: {self.oss_endpoint}, bucket: {self.oss_bucket_name}")
             
             # 初始化OSS客户端
@@ -179,33 +143,64 @@ class PdfService:
             
             # 使用异步运行同步的OSS操作
             def download_from_oss():
-                oss_key = None
-                file_content = None
+                # 声明所有可能会被修改的外部变量
+                nonlocal oss_key, local_dir, local_file_path
                 
-                # 尝试所有可能的键模式
-                for key in possible_keys:
-                    try:
-                        logger.info(f"Trying OSS key: {key}")
-                        if bucket.object_exists(key):
-                            logger.info(f"Found object in OSS with key: {key}")
-                            # 下载文件到临时内存
-                            result = bucket.get_object(key)
-                            file_content = result.read()
-                            oss_key = key
-                            break
-                    except oss2.exceptions.NoSuchKey:
-                        logger.info(f"OSS key not found: {key}")
-                    except oss2.exceptions.OssError as e:
-                        logger.error(f"OSS error with key {key}: {str(e)}")
-                    except Exception as e:
-                        logger.error(f"Unexpected error with key {key}: {str(e)}")
+                # 先检查文件是否存在
+                try:
+                    if not bucket.object_exists(oss_key):
+                        # 尝试使用新格式路径 (papers/YY/MM/YYMM_xxxxx.pdf)
+                        if match_format1 and not match_format2:
+                            # 如果原始格式是 YYMM.xxxxx，尝试转换为 YYMM_xxxxx
+                            number = paper_id.split('.')[1]
+                            alt_paper_id = f"{year}{month}_{number}"
+                            alt_key = f"{self.oss_papers_prefix}{year}/{month}/{alt_paper_id}.pdf"
+                            logger.info(f"Original key {oss_key} not found, trying alternative format: {alt_key}")
+                            
+                            if bucket.object_exists(alt_key):
+                                oss_key = alt_key
+                                # 更新本地文件名以匹配OSS文件名
+                                local_filename = f"{alt_paper_id}.pdf"
+                                local_file_path = local_dir / local_filename
+                                return bucket.get_object(oss_key).read()
+                        
+                        # 尝试使用旧格式路径
+                        fallback_key = f"{self.oss_papers_prefix}{paper_id}/{paper_id}.pdf"
+                        logger.info(f"Alternative key not found, trying fallback key: {fallback_key}")
+                        
+                        if not bucket.object_exists(fallback_key):
+                            # 再尝试不带年月的格式
+                            simple_key = f"{self.oss_papers_prefix}{paper_id}.pdf"
+                            logger.info(f"Fallback key not found, trying simple key: {simple_key}")
+                            
+                            if not bucket.object_exists(simple_key):
+                                logger.error(f"PDF file not found in OSS: tried {oss_key}, {fallback_key}, and {simple_key}")
+                                return None
+                            
+                            # 使用简单键
+                            oss_key = simple_key
+                        else:
+                            # 使用旧格式键
+                            oss_key = fallback_key
+                            # 更新本地目录结构
+                            local_dir = self.upload_dir / paper_id
+                            os.makedirs(local_dir, exist_ok=True)
+                            local_file_path = local_dir / local_filename
                 
-                if file_content is None:
-                    all_keys = ", ".join(possible_keys)
-                    logger.error(f"PDF file not found in OSS after trying all patterns: {all_keys}")
+                    logger.info(f"Found object in OSS with key: {oss_key}, downloading...")
+                    
+                    # 下载文件到临时内存
+                    result = bucket.get_object(oss_key)
+                    return result.read()
+                except oss2.exceptions.NoSuchKey:
+                    logger.error(f"OSS key not found: {oss_key}")
                     return None
-                
-                return file_content
+                except oss2.exceptions.OssError as e:
+                    logger.error(f"OSS error during download: {str(e)}")
+                    return None
+                except Exception as e:
+                    logger.error(f"Unexpected error during OSS download: {str(e)}")
+                    return None
             
             # 异步执行OSS下载
             file_content = await loop.run_in_executor(None, download_from_oss)
