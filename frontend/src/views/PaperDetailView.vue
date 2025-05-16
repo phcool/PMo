@@ -74,8 +74,8 @@
   </div>
 </template>
 
-<script>
-import { defineComponent, ref, onMounted, computed, onBeforeUnmount } from 'vue'
+<script lang="ts">
+import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
 import { getCategoryLabel } from '../types/paper'
@@ -91,12 +91,12 @@ export default defineComponent({
     const toast = useToast();
     const paper = ref(null);
     const isLoading = ref(true);
-    const error = ref(null);
+    const error = ref('');
     const showPdf = ref(false);
     
-    // 格式化日期
+    // Format the date
     const formattedDate = computed(() => {
-      if (!paper.value) return '';
+      if (!paper.value || !paper.value.published_date) return '';
       
       try {
         const date = new Date(paper.value.published_date);
@@ -131,11 +131,12 @@ export default defineComponent({
     
     // 开始与论文聊天
     const startChatWithPaper = async () => {
-      if (!paper.value || !paper.value.paper_id) {
-        toast.error('Paper information is not available');
+      // 确保我们有论文信息
+      if (!paper.value) {
+        toast.error('论文信息不可用，请重试');
         return;
       }
-      
+
       try {
         // 确保有活跃的聊天会话
         if (!chatSessionStore.hasActiveSession()) {
@@ -143,33 +144,31 @@ export default defineComponent({
         }
         
         const chatId = chatSessionStore.getChatId();
-        const paperId = paper.value.paper_id;
         
-        // 显示正在处理的提示
-        const notification = toast.info(`Preparing paper ${paperId} for chat...`, {
-          timeout: false,
-          closeButton: false
-        });
+        // 存储论文 ID 到会话中，以便在聊天页面中使用
+        chatSessionStore.setPendingPaperId(paper.value.paper_id);
         
-        // 调用API下载论文并关联到聊天会话
-        const response = await api.associatePaperWithChat(paperId, chatId);
+        // 显示消息
+        toast.info(`正在跳转到聊天页面，论文将在后台处理...`);
         
-        // 关闭提示
-        toast.dismiss(notification);
+        // 直接跳转到聊天页面，不等待论文处理
+        router.push({ name: 'chat', params: { id: chatId } });
         
-        if (response && response.success) {
-          toast.success(`Paper ${paperId} is ready for chat`);
-          
-          // 跳转到聊天页面
-          router.push({ name: 'chat', params: { id: chatId } });
-        } else {
-          throw new Error('Failed to associate paper with chat session');
-        }
+        // 在后台发起论文关联请求，不阻塞用户流程
+        setTimeout(async () => {
+          try {
+            await api.associatePaperWithChat(paper.value.paper_id, chatId);
+            console.log(`Successfully associated paper ${paper.value.paper_id} with chat ${chatId} in background`);
+          } catch (error) {
+            console.error('Error associating paper with chat in background:', error);
+          }
+        }, 100);
+        
       } catch (error) {
         console.error('Error starting chat with paper:', error);
-        toast.error('Failed to prepare paper for chat. Please try again.');
+        toast.error('无法创建聊天会话，请重试');
         
-        // 出错时也跳转到聊天页面，但不关联论文
+        // 出错时也尝试跳转到聊天页面
         if (chatSessionStore.hasActiveSession()) {
           router.push({ 
             name: 'chat',

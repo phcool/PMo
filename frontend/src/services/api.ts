@@ -35,6 +35,24 @@ interface ProcessingStatus {
 }
 
 /**
+ * Search history response interface
+ */
+interface SearchHistoryResponse {
+  user_id: string;
+  searches: Array<{query: string, timestamp: string}>;
+  updated_at: string | null;
+}
+
+/**
+ * Paper view history response interface
+ */
+interface PaperViewsResponse {
+  user_id: string;
+  views: Array<{paper_id: string, title: string, view_count: number, view_date: string}>;
+  updated_at: string | null;
+}
+
+/**
  * API Service interface
  */
 export interface IApiService {
@@ -45,15 +63,15 @@ export interface IApiService {
   searchPapers(searchRequest: SearchRequest): Promise<SearchResponse>;
   chatWithPaper(paperId: string, data: { message: string, context_messages?: Array<{role: string, content: string}> }, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   createChatSession(paperId?: string): Promise<ChatSessionResponse>;
-  uploadPdfToChat(chatId: string, file: File): Promise<FileUploadResponse>;
   sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   endChatSession(chatId: string): Promise<any>;
   saveSearchHistory(query: string): Promise<any>;
-  getUserSearchHistory(): Promise<Array<{query: string, timestamp: string}>>;
+  getUserSearchHistory(): Promise<SearchHistoryResponse>;
   getRecommendedPapers(limit?: number, offset?: number): Promise<Paper[]>;
   recordPaperView(paperId: string): Promise<any>;
-  getUserPaperViews(limit?: number, days?: number): Promise<Array<{paper: Paper, view_count: number}>>;
+  getUserPaperViews(limit?: number, days?: number): Promise<PaperViewsResponse>;
   getProcessingStatus(chatId: string): Promise<ProcessingStatus>;
+  associatePaperWithChat(paperId: string, chatId: string): Promise<{success: boolean, message: string}>;
 }
 
 /**
@@ -66,7 +84,7 @@ class ApiService implements IApiService {
     // Create axios instance
     this.api = axios.create({
       baseURL: '',  // Use empty string as baseURL to avoid path issues
-      timeout: 10000,
+      timeout: 30000,  // Default timeout increased to 30 seconds
       headers: {
         'Content-Type': 'application/json',
       },
@@ -222,36 +240,7 @@ class ApiService implements IApiService {
    * @param file File to upload
    * @returns Promise with upload result
    */
-  async uploadPdfToChat(chatId: string, file: File): Promise<FileUploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await this.api.post(
-        `/api/chat/sessions/${chatId}/upload`, 
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          timeout: 60000 // Longer timeout for file uploads
-        }
-      );
-      
-      return response.data;
-    } catch (error) {
-      console.error('Failed to upload PDF:', error);
-      throw error;
-    }
-  }
   
-  /**
-   * Send a message to a chat session and get a streaming response
-   * @param chatId Chat session ID
-   * @param message Message to send
-   * @param onChunk Optional callback for streaming responses
-   * @returns Promise with chat response
-   */
   async sendChatMessage(
     chatId: string,
     message: string,
@@ -371,13 +360,17 @@ class ApiService implements IApiService {
    * Get user search history
    * @returns Promise with search history
    */
-  async getUserSearchHistory(): Promise<Array<{query: string, timestamp: string}>> {
+  async getUserSearchHistory(): Promise<SearchHistoryResponse> {
     try {
       const response = await this.api.get('/api/user/search-history');
       return response.data;
     } catch (error) {
       console.error('Failed to get search history:', error);
-      throw error;
+      return {
+        user_id: 'anonymous',
+        searches: [],
+        updated_at: null
+      };
     }
   }
   
@@ -420,7 +413,7 @@ class ApiService implements IApiService {
    * @param days Time window in days
    * @returns Promise with paper view history
    */
-  async getUserPaperViews(limit: number = 20, days: number = 30): Promise<Array<{paper: Paper, view_count: number}>> {
+  async getUserPaperViews(limit: number = 20, days: number = 30): Promise<PaperViewsResponse> {
     try {
       const response = await this.api.get('/api/user/paper-views', {
         params: { limit, days }
@@ -428,7 +421,11 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to get paper views:', error);
-      throw error;
+      return {
+        user_id: 'anonymous',
+        views: [],
+        updated_at: null
+      };
     }
   }
   
@@ -443,6 +440,27 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to get processing status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Associate a paper with a chat session
+   * @param paperId Paper ID to associate
+   * @param chatId Chat session ID to associate with
+   * @returns Promise with result
+   */
+  async associatePaperWithChat(paperId: string, chatId: string): Promise<{success: boolean, message: string}> {
+    try {
+      const response = await this.api.post(`/api/chat/sessions/${chatId}/attach_paper`, 
+        { paper_id: paperId },
+        { 
+          timeout: 120000  // Extended timeout (2 minutes) for PDF processing and embeddings
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Failed to associate paper with chat:', error);
       throw error;
     }
   }

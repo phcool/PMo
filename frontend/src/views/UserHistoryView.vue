@@ -68,7 +68,7 @@
   </div>
 </template>
 
-<script>
+<script lang="ts">
 import { defineComponent, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api';
@@ -79,13 +79,13 @@ export default defineComponent({
   setup() {
     const router = useRouter();
     const activeTab = ref('views');
-    const paperViews = ref([]);
-    const searchHistory = ref([]);
+    const paperViews = ref<Array<{paper_id: string, title: string, view_count: number, view_date: string}>>([]);
+    const searchHistory = ref<Array<{query: string, timestamp: string}>>([]);
     const isLoadingViews = ref(true);
     const isLoadingSearches = ref(true);
     
     // Format date display
-    const formatDate = (dateStr) => {
+    const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
@@ -95,7 +95,7 @@ export default defineComponent({
     };
     
     // Format date time display
-    const formatDateTime = (dateStr) => {
+    const formatDateTime = (dateStr: string) => {
       const date = new Date(dateStr);
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
@@ -107,7 +107,7 @@ export default defineComponent({
     };
     
     // Execute search directly from history
-    const executeSearch = async (query) => {
+    const executeSearch = async (query: string) => {
       try {
         // Save search history
         await api.saveSearchHistory(query);

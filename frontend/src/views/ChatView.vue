@@ -27,7 +27,7 @@
           
           <!-- Paper tags standalone component -->
           <div v-if="isSearchingPapers || relatedPapers.length > 0" class="paper-tags-container standalone">
-            <div class="paper-tags-header">
+            <div class="paper-tags-header"> 
               <svg class="icon-svg" viewBox="0 0 24 24">
                 <path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z" />
               </svg>
@@ -61,6 +61,32 @@
             </div>
           </div>
           
+          <!-- 在聊天输入区域上方添加论文处理状态提示 -->
+          <div v-if="isPaperProcessing" class="paper-processing-alert">
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-loader" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+              <path d="M12 6l0 -3"></path>
+              <path d="M16.25 7.75l2.15 -2.15"></path>
+              <path d="M18 12l3 0"></path>
+              <path d="M16.25 16.25l2.15 2.15"></path>
+              <path d="M12 18l0 3"></path>
+              <path d="M7.75 16.25l-2.15 2.15"></path>
+              <path d="M6 12l-3 0"></path>
+              <path d="M7.75 7.75l-2.15 -2.15"></path>
+            </svg>
+            <div class="processing-content">
+              <span class="processing-title">正在处理论文，请稍候...</span>
+              <span class="processing-hint">处理大型论文可能需要一些时间，您可以等待处理完成后发送消息，或者在下方点击"立即尝试发送"按钮绕过处理检查。</span>
+              <button 
+                v-if="hasWaitedLongEnough" 
+                @click="bypassProcessingCheck" 
+                class="bypass-button"
+              >
+                立即尝试发送
+              </button>
+            </div>
+          </div>
+          
           <div class="chat-container">
             <div class="chat-messages" ref="messagesContainer">
               <div v-for="message in messages" :key="message.id" 
@@ -78,20 +104,25 @@
               </div>
             </div>
             <div class="chat-input-container">
-              <div class="chat-input-wrapper" :class="{ 'search-mode': isSearchMode }">
+              <div class="chat-input-wrapper" 
+                :class="{ 
+                  'search-mode': isSearchMode,
+                  'processing-mode': isLoading || isProcessingFile || isPaperProcessing
+                }"
+              >
                 <textarea 
                   ref="inputField" 
                   v-model="userInput"
                   @keydown.enter.exact.prevent="sendMessage"
-                  :placeholder="getPlaceholderText()"
-                  :disabled="isLoading || isProcessingFile"
+                  :placeholder="inputPlaceholder"
+                  :disabled="false"
                   class="chat-input"
                 ></textarea>
                 <div class="input-actions">
                   <button 
                     class="action-button" 
                     :class="{ 
-                      disabled: isLoading || isProcessingFile,
+                      disabled: isLoading || isProcessingFile || isPaperProcessing,
                       active: isSearchMode
                     }"
                     title="Toggle search mode"
@@ -105,12 +136,13 @@
               </div>
               <button 
                 @click="sendMessage" 
-                :disabled="isLoading || !userInput.trim() || isProcessingFile"
+                :disabled="isLoading || !userInput.trim() || isProcessingFile || isPaperProcessing"
                 class="chat-send-button"
                 :class="{ 'search-mode': isSearchMode }"
               >
                 <span v-if="isLoading">⏳</span>
                 <span v-else-if="isProcessingFile">⌛</span>
+                <span v-else-if="isPaperProcessing">⌛</span>
                 <span v-else>{{ isSearchMode ? 'Search' : 'Send' }}</span>
               </button>
             </div>
@@ -244,13 +276,20 @@ const currentFileName = ref('Document'); // Current PDF filename
 const relatedPapers = ref([]);
 const relatedPapersMessageId = ref(null);
 
-// Calculate input placeholder text
+// 检查是否正在处理论文
+const isPaperProcessing = ref(false);
 const inputPlaceholder = computed(() => {
-  if (isProcessingFile.value) {
-    return `Please wait while I process ${processingFileName.value}...`;
+  if (isPaperProcessing.value) {
+    return '论文处理中，您可以继续编辑消息，处理完成后将启用发送按钮...';
   }
-  return isSearchMode.value ? 'Type your search query...' : 'Type your question...';
+  if (isLoading.value) {
+    return 'AI正在回复，您可以继续编辑消息，回复完成后将启用发送按钮...';
+  }
+  return isSearchMode.value ? 'Search for related papers...' : 'Type your message...';
 });
+
+// 处理状态检查相关
+const hasWaitedLongEnough = ref(false);
 
 // Initialization
 onMounted(async () => {
@@ -304,6 +343,43 @@ onMounted(async () => {
       return hljs.highlightAuto(code).value;
     }
   });
+
+  // 如果有待处理的论文ID，设置处理状态
+  if (chatSessionStore.getPendingPaperId()) {
+    isPaperProcessing.value = true;
+    
+    // 首先立即执行一次检查
+    checkPaperProcessingStatus();
+    
+    // 每3秒检查一次论文处理状态，以更快响应处理完成
+    const checkInterval = setInterval(() => {
+      checkPaperProcessingStatus();
+      
+      // 如果处理完成或没有待处理的论文，清除定时器
+      if (!isPaperProcessing.value || !chatSessionStore.getPendingPaperId()) {
+        clearInterval(checkInterval);
+        console.log('Paper processing check completed, clearing interval');
+      }
+    }, 3000);
+    
+    // 设置一个前置超时，允许用户手动绕过处理检查
+    setTimeout(() => {
+      hasWaitedLongEnough.value = true;
+    }, 15000); // 15秒后允许手动绕过
+    
+    // 设置一个超时，如果30秒后仍在处理，也强制取消处理状态
+    setTimeout(() => {
+      if (isPaperProcessing.value) {
+        console.log('Force clearing paper processing status after timeout');
+        isPaperProcessing.value = false;
+        chatSessionStore.setProcessingPaper(false);
+        
+        // 不清空pendingPaperId，这样即使超时也能保持关联关系
+        // 但不再阻止用户发送消息
+        toast.info('论文已关联到会话，但处理可能需要更长时间。您现在可以发送消息了。');
+      }
+    }, 30000); // 增加到30秒，给处理大文件更多时间
+  }
 });
 
 // Create new chat session
@@ -399,7 +475,14 @@ function toggleSearchMode() {
 
 // Send message or execute search
 async function sendMessage() {
+  // 如果输入为空或正在加载中或正在处理文件，直接返回
   if (!userInput.value.trim() || isLoading.value) return;
+  
+  // 再次检查论文处理状态，确保无法在处理时发送
+  if (isPaperProcessing.value) {
+    toast.warning('论文正在处理中，请稍候再发送消息');
+    return;
+  }
   
   const messageContent = userInput.value.trim();
   userInput.value = '';
@@ -803,10 +886,40 @@ onBeforeUnmount(() => {
   document.body.classList.remove('pdf-active-page');
 });
 
-// Return different placeholder based on current mode
-function getPlaceholderText() {
-  return isSearchMode.value ? 'Type your search query...' : 'Type your question...';
-}
+// 监控后台论文处理状态
+const checkPaperProcessingStatus = async () => {
+  if (!chatId.value || !isPaperProcessing.value) return;
+  
+  try {
+    // 直接从处理状态API获取更准确的状态信息
+    const processingResponse = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/processing-status`);
+    const pendingPaperId = chatSessionStore.getPendingPaperId();
+    
+    // 只有当API明确返回processing=false时才更新状态
+    if (processingResponse.data && processingResponse.data.processing === false) {
+      // 当API报告处理完成后，检查文件是否实际存在
+      const filesResponse = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/files`);
+      
+      // 验证文件列表中确实有文件
+      if (filesResponse.data && Array.isArray(filesResponse.data) && filesResponse.data.length > 0) {
+        console.log('Processing complete and files are available');
+        
+        // 在确认有文件且API报告处理完成后才更新状态
+        isPaperProcessing.value = false;
+        chatSessionStore.setProcessingPaper(false);
+        chatSessionStore.clearPendingPaperId();
+        toast.success('论文处理完成，现在可以开始聊天了');
+      } else {
+        console.log('Processing reported complete but no files found yet, continuing to wait');
+      }
+    } else if (processingResponse.data) {
+      console.log(`Paper processing status: processing=${processingResponse.data.processing}`, 
+                  processingResponse.data.file_name ? `file=${processingResponse.data.file_name}` : '');
+    }
+  } catch (error) {
+    console.error('Error checking paper processing status:', error);
+  }
+};
 
 // 监听全局会话状态
 watch(() => chatSessionStore.state.chatId, (newChatId) => {
@@ -825,6 +938,13 @@ onBeforeUnmount(() => {
   // 不再结束聊天会话，而是将其保留在全局状态中
   console.log('Chat component unmounting, keeping global session:', chatId.value);
 });
+
+// 绕过处理检查
+function bypassProcessingCheck() {
+  isPaperProcessing.value = false;
+  chatSessionStore.setProcessingPaper(false);
+  toast.info('已绕过处理检查，您现在可以发送消息了。但论文可能尚未完全处理，回答准确性可能受影响。');
+}
 </script>
 
 <style scoped>
@@ -1149,8 +1269,8 @@ onBeforeUnmount(() => {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* 文件列表和PDF查看器样式 */
@@ -1653,6 +1773,111 @@ onBeforeUnmount(() => {
   
   .paper-tags-container {
     padding: 8px;
+  }
+}
+
+.paper-processing-alert {
+  display: flex;
+  align-items: flex-start;
+  background-color: #fff3cd;
+  color: #856404;
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  animation: pulse 1.5s infinite;
+}
+
+.paper-processing-alert svg {
+  margin-right: 8px;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.paper-processing-alert .processing-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.paper-processing-alert .processing-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.paper-processing-alert .processing-hint {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.bypass-button {
+  align-self: flex-start;
+  margin-top: 8px;
+  background-color: #ffc107;
+  color: #212529;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.bypass-button:hover {
+  background-color: #e0a800;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { opacity: 0.8; }
+}
+
+/* 禁用状态的样式 */
+.chat-input:disabled {
+  background-color: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 添加处理中输入框的样式 */
+.chat-input-wrapper.processing-mode {
+  border-color: #ffb74d;
+  background-color: #fff8e1;
+}
+
+.chat-input-wrapper.processing-mode .chat-input {
+  background-color: transparent;
+}
+
+.chat-input-wrapper.processing-mode::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background-color: #ff9800;
+  animation: processing-bar 2s infinite linear;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: 0 0;
+}
+
+@keyframes processing-bar {
+  0% {
+    transform: scaleX(0);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0);
+    transform-origin: 100% 0;
   }
 }
 </style>

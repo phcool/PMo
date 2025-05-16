@@ -7,13 +7,17 @@ interface ChatSession {
   chatId: string | null;
   isLoading: boolean;
   error: string | null;
+  pendingPaperId: string | null;
+  processingPaper: boolean;
 }
 
 class ChatSessionStore {
   state = reactive<ChatSession>({
     chatId: null,
     isLoading: false,
-    error: null
+    error: null,
+    pendingPaperId: null,
+    processingPaper: false
   });
 
   // 创建新聊天会话
@@ -81,6 +85,32 @@ class ChatSessionStore {
   // 设置聊天会话ID（用于从URL加载）
   setChatId(chatId: string): void {
     this.state.chatId = chatId;
+  }
+
+  // 设置待处理论文ID
+  setPendingPaperId(paperId: string): void {
+    this.state.pendingPaperId = paperId;
+    this.state.processingPaper = true;
+  }
+
+  // 获取待处理论文ID
+  getPendingPaperId(): string | null {
+    return this.state.pendingPaperId;
+  }
+
+  // 清除待处理论文ID
+  clearPendingPaperId(): void {
+    this.state.pendingPaperId = null;
+  }
+
+  // 设置论文处理状态
+  setProcessingPaper(isProcessing: boolean): void {
+    this.state.processingPaper = isProcessing;
+  }
+
+  // 获取论文处理状态
+  isProcessingPaper(): boolean {
+    return this.state.processingPaper;
   }
 }
 
