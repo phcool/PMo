@@ -2,6 +2,20 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { Paper, SearchRequest, SearchResponse } from '@/types/paper';
 import userService from './user';
 
+// 获取API基础URL，确保在所有环境中都能正确工作
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+console.log('API Service - Base URL:', API_BASE_URL); // 添加调试信息
+
+// 构建API端点，确保路径正确
+function buildApiEndpoint(path: string): string {
+  // 如果API_BASE_URL为空，则直接使用/api前缀
+  if (!API_BASE_URL) {
+    return `/api${path}`;
+  }
+  // 否则使用配置的API_BASE_URL
+  return `${API_BASE_URL}${path}`;
+}
+
 /**
  * Chat response chunk interface
  */
@@ -105,7 +119,7 @@ class ApiService implements IApiService {
    */
   async getRecentPapers(limit: number = 10, offset: number = 0): Promise<Paper[]> {
     try {
-      const response = await this.api.get('/api/papers', {
+      const response = await this.api.get(buildApiEndpoint('/papers'), {
         params: { limit, offset }
       });
       return response.data;
@@ -122,7 +136,7 @@ class ApiService implements IApiService {
    */
   async getPaperById(paperId: string): Promise<Paper> {
     try {
-      const response = await this.api.get(`/api/papers/${paperId}`);
+      const response = await this.api.get(buildApiEndpoint(`/papers/${paperId}`));
       return response.data;
     } catch (error) {
       console.error(`Failed to get paper ${paperId}:`, error);
@@ -136,7 +150,7 @@ class ApiService implements IApiService {
    */
   async countPapers(): Promise<number> {
     try {
-      const response = await this.api.get('/api/papers/count');
+      const response = await this.api.get(buildApiEndpoint('/papers/count'));
       return response.data.count;
     } catch (error) {
       console.error('Failed to count papers:', error);
@@ -155,7 +169,7 @@ class ApiService implements IApiService {
     maxResults: number = 50
   ): Promise<{ count: number }> {
     try {
-      const response = await this.api.post('/api/papers/fetch', null, {
+      const response = await this.api.post(buildApiEndpoint('/papers/fetch'), null, {
         params: { categories, max_results: maxResults }
       });
       return response.data;
@@ -172,7 +186,7 @@ class ApiService implements IApiService {
    */
   async searchPapers(searchRequest: SearchRequest): Promise<SearchResponse> {
     try {
-      const response = await this.api.post('/api/search', searchRequest);
+      const response = await this.api.post(buildApiEndpoint('/search'), searchRequest);
       return response.data;
     } catch (error) {
       console.error('Failed to search papers:', error);
@@ -194,7 +208,7 @@ class ApiService implements IApiService {
   ): Promise<any> {
     try {
       // Create a new chat session linked to the paper
-      const createSessionResponse = await this.api.post('/api/chat/sessions', null, {
+      const createSessionResponse = await this.api.post(buildApiEndpoint('/chat/sessions'), null, {
         params: { paper_id: paperId }
       });
       
@@ -215,9 +229,14 @@ class ApiService implements IApiService {
    */
   async createChatSession(paperId?: string): Promise<ChatSessionResponse> {
     try {
-      const response = await this.api.post('/api/chat/sessions', null, {
+      const endpoint = buildApiEndpoint('/chat/sessions');
+      console.log('API Service - Creating chat session at:', endpoint);
+      
+      const response = await this.api.post(endpoint, null, {
         params: paperId ? { paper_id: paperId } : undefined
       });
+      
+      console.log('API Service - Chat session created:', response.data);
       return response.data;
     } catch (error) {
       console.error('Failed to create chat session:', error);
@@ -237,7 +256,7 @@ class ApiService implements IApiService {
       formData.append('file', file);
       
       const response = await this.api.post(
-        `/api/chat/sessions/${chatId}/upload`, 
+        buildApiEndpoint(`/chat/sessions/${chatId}/upload`), 
         formData,
         {
           headers: {
@@ -255,7 +274,7 @@ class ApiService implements IApiService {
   }
   
   /**
-   * Send a message to a chat session and get a streaming response
+   * Send a message to a chat session and get a response
    * @param chatId Chat session ID
    * @param message Message to send
    * @param onChunk Optional callback for streaming responses
@@ -266,10 +285,12 @@ class ApiService implements IApiService {
     message: string,
     onChunk?: (chunk: string, isDone: boolean) => void
   ): Promise<any> {
-    // If callback provided, use streaming
     if (onChunk) {
       try {
-        const response = await fetch(`/api/chat/sessions/${chatId}/chat`, {
+        const endpoint = buildApiEndpoint(`/chat/sessions/${chatId}/chat`);
+        console.log('API Service - Sending chat message at:', endpoint);
+        
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -277,67 +298,63 @@ class ApiService implements IApiService {
           },
           body: JSON.stringify({ message })
         });
-
+        
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-
+        
+        // Process streaming response
         const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error('Stream reader not available');
-        }
-
         const decoder = new TextDecoder();
-        let buffer = '';
-
-        // Process stream data
+        
+        if (!reader) {
+          throw new Error('ReadableStream not supported');
+        }
+        
+        // Read the stream
         while (true) {
-          const { value, done } = await reader.read();
+          const { done, value } = await reader.read();
           
           if (done) {
-            // Process final chunk
-            if (buffer) {
-              try {
-                const chunk = JSON.parse(buffer) as ChatResponseChunk;
-                onChunk(chunk.content, chunk.done);
-              } catch (e) {
-                console.error('Error parsing final chunk:', buffer);
-              }
-            }
+            // Signal completion
+            onChunk('', true);
             break;
           }
-
-          // Add data to buffer and process by line
-          buffer += decoder.decode(value, { stream: true });
           
-          // Process data by line
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete last line
+          // Decode the chunk and split by newlines
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n').filter(line => line.trim());
           
+          // Process each line (each line is a JSON object)
           for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const chunk = JSON.parse(line) as ChatResponseChunk;
-                onChunk(chunk.content, chunk.done);
-                if (chunk.done) {
-                  return { success: true };
-                }
-              } catch (e) {
-                console.error('Error parsing chunk:', line);
+            try {
+              const data = JSON.parse(line);
+              onChunk(data.content, data.done);
+              
+              if (data.done) {
+                // End the stream if done flag is true
+                return;
               }
+            } catch (e) {
+              console.error('Error parsing chunk:', e);
+              // Continue with next line
             }
           }
         }
         
-        return { success: true };
+        return;
       } catch (error) {
         console.error('Error in streaming chat:', error);
+        onChunk('Error: Failed to get response. Please try again.', true);
         throw error;
       }
     } else {
       // Non-streaming fallback
       try {
-        const response = await this.api.post(`/api/chat/sessions/${chatId}/chat`, { message });
+        const endpoint = buildApiEndpoint(`/chat/sessions/${chatId}/chat`);
+        console.log('API Service - Sending non-streaming chat message at:', endpoint);
+        
+        const response = await this.api.post(endpoint, { message });
         return response.data;
       } catch (error) {
         console.error('Failed to send chat message:', error);
@@ -353,7 +370,7 @@ class ApiService implements IApiService {
    */
   async endChatSession(chatId: string): Promise<any> {
     try {
-      const response = await this.api.delete(`/api/chat/sessions/${chatId}`);
+      const response = await this.api.delete(buildApiEndpoint(`/chat/sessions/${chatId}`));
       return response.data;
     } catch (error) {
       console.error('Failed to end chat session:', error);
@@ -367,7 +384,7 @@ class ApiService implements IApiService {
    */
   async getUserPreferences(): Promise<UserPreferences> {
     try {
-      const response = await this.api.get('/api/user/preferences');
+      const response = await this.api.get(buildApiEndpoint('/user/preferences'));
       return response.data;
     } catch (error) {
       console.error('Failed to get user preferences:', error);
@@ -382,7 +399,7 @@ class ApiService implements IApiService {
    */
   async saveUserPreferences(preferences: UserPreferences): Promise<any> {
     try {
-      const response = await this.api.post('/api/user/preferences', preferences);
+      const response = await this.api.post(buildApiEndpoint('/user/preferences'), preferences);
       return response.data;
     } catch (error) {
       console.error('Failed to save user preferences:', error);
@@ -397,7 +414,7 @@ class ApiService implements IApiService {
    */
   async saveSearchHistory(query: string): Promise<any> {
     try {
-      const response = await this.api.post('/api/user/search-history', { query });
+      const response = await this.api.post(buildApiEndpoint('/user/search-history'), { query });
       return response.data;
     } catch (error) {
       console.error('Failed to save search history:', error);
@@ -411,7 +428,7 @@ class ApiService implements IApiService {
    */
   async getUserSearchHistory(): Promise<Array<{query: string, timestamp: string}>> {
     try {
-      const response = await this.api.get('/api/user/search-history');
+      const response = await this.api.get(buildApiEndpoint('/user/search-history'));
       return response.data;
     } catch (error) {
       console.error('Failed to get search history:', error);
@@ -427,7 +444,7 @@ class ApiService implements IApiService {
    */
   async getRecommendedPapers(limit: number = 5, offset: number = 0): Promise<Paper[]> {
     try {
-      const response = await this.api.get('/api/papers/recommend/', {
+      const response = await this.api.get(buildApiEndpoint('/papers/recommend/'), {
         params: { limit, offset }
       });
       return response.data;
@@ -444,7 +461,7 @@ class ApiService implements IApiService {
    */
   async recordPaperView(paperId: string): Promise<any> {
     try {
-      const response = await this.api.post('/api/user/paper-views', { paper_id: paperId });
+      const response = await this.api.post(buildApiEndpoint('/user/paper-views'), { paper_id: paperId });
       return response.data;
     } catch (error) {
       console.error('Failed to record paper view:', error);
@@ -460,7 +477,7 @@ class ApiService implements IApiService {
    */
   async getUserPaperViews(limit: number = 20, days: number = 30): Promise<Array<{paper: Paper, view_count: number}>> {
     try {
-      const response = await this.api.get('/api/user/paper-views', {
+      const response = await this.api.get(buildApiEndpoint('/user/paper-views'), {
         params: { limit, days }
       });
       return response.data;
@@ -477,7 +494,7 @@ class ApiService implements IApiService {
    */
   async getProcessingStatus(chatId: string): Promise<ProcessingStatus> {
     try {
-      const response = await this.api.get(`/api/chat/sessions/${chatId}/status`);
+      const response = await this.api.get(buildApiEndpoint(`/chat/sessions/${chatId}/status`));
       return response.data;
     } catch (error) {
       console.error('Failed to get processing status:', error);

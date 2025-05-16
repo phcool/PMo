@@ -61,10 +61,14 @@ export default defineComponent({
         // 只有当没有活动会话时才创建新会话
         if (!chatSessionStore.hasActiveSession()) {
           console.log('Initializing global chat session');
-          await chatSessionStore.createChatSession();
+          const chatId = await chatSessionStore.createChatSession();
+          console.log('Global chat session initialized:', chatId);
+        } else {
+          console.log('Using existing chat session:', chatSessionStore.getChatId());
         }
       } catch (error) {
         console.error('Failed to initialize global chat session:', error);
+        // 不要让初始化错误阻止应用加载
       }
     };
     
@@ -72,20 +76,35 @@ export default defineComponent({
     const endChatSessionBeforeUnload = async (): Promise<void> => {
       if (chatSessionStore.hasActiveSession()) {
         console.log('Ending global chat session before unload');
-        await chatSessionStore.endChatSession();
+        try {
+          await chatSessionStore.endChatSession();
+        } catch (error) {
+          console.error('Error ending chat session:', error);
+          // 不阻止窗口关闭
+        }
       }
     };
     
     onMounted(async () => {
+      console.log('App mounted, initializing...');
+      
       // Add global navigation hook
       router.beforeEach(saveScrollPositionBeforeLeave);
       
       // Update user visit records
-      updateUserVisit();
+      try {
+        await updateUserVisit();
+        console.log('User visit records updated');
+      } catch (error) {
+        console.error('Failed to update user visit records:', error);
+        // 不阻止应用加载
+      }
 
       // Add route listener to update user visit records on each route change
       router.afterEach(() => {
-        updateUserVisit();
+        updateUserVisit().catch(error => {
+          console.error('Failed to update user visit records after navigation:', error);
+        });
       });
       
       // 初始化全局聊天会话
@@ -93,6 +112,8 @@ export default defineComponent({
       
       // 添加窗口关闭事件监听器
       window.addEventListener('beforeunload', endChatSessionBeforeUnload);
+      
+      console.log('App initialization complete');
     });
     
     onBeforeUnmount(() => {
