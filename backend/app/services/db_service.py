@@ -15,10 +15,18 @@ from app.db.database import get_async_db
 
 logger = logging.getLogger(__name__)
 
+# 定义数据库服务异常
+class DatabaseError(Exception):
+    """数据库服务异常基类"""
+    pass
+
 class DBService:
     """
     PostgreSQL database service for storing and retrieving paper data
     """
+    
+    # 添加DatabaseError作为类属性
+    DatabaseError = DatabaseError
     
     def __init__(self):
         """Initialize database service"""

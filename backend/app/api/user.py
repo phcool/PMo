@@ -167,6 +167,37 @@ async def get_search_history(
         "updated_at": history.updated_at
     }
 
+@router.post("/paper-views")
+async def record_paper_view_body(
+    data: Dict[str, str] = Body(..., description="Paper view data containing paper_id"),
+    x_user_id: Optional[str] = Header(None, description="User unique identifier")
+):
+    """
+    Record user paper viewing history using POST with request body
+    """
+    # If no user ID is provided, don't record viewing
+    if not x_user_id:
+        return {
+            "success": False,
+            "message": "No user ID provided, viewing record not saved"
+        }
+    
+    paper_id = data.get("paper_id")
+    if not paper_id:
+        raise HTTPException(status_code=400, detail="Missing required parameter 'paper_id'")
+    
+    success = await db_service.record_paper_view(user_id=x_user_id, paper_id=paper_id)
+    
+    if not success:
+        logger.warning(f"Failed to record paper viewing history: user_id={x_user_id}, paper_id={paper_id}")
+    
+    return {
+        "success": success,
+        "user_id": x_user_id,
+        "paper_id": paper_id,
+        "message": "Viewing record saved" if success else "Failed to record viewing record"
+    }
+
 @router.post("/paper-view/{paper_id}")
 async def record_paper_view(
     paper_id: str = Path(..., description="Paper ID"),

@@ -949,7 +949,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .chat-page {
   width: 100%;
-  height: calc(100vh - 60px); /* 减去顶部导航栏的高度 */
+  height: calc(100vh - 60px);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1291,9 +1291,9 @@ onBeforeUnmount(() => {
 }
 
 .files-sidebar.pdf-active {
-  width: 50%; /* 使用百分比宽度确保响应式 */
-  max-width: 800px; /* 设置最大宽度避免PDF区域过大 */
-  min-width: 600px; /* 设置最小宽度确保PDF可读性 */
+  width: 50%;
+  max-width: 800px;
+  min-width: 600px;
 }
 
 .files-sidebar.hidden {
@@ -1498,7 +1498,7 @@ onBeforeUnmount(() => {
 
 .pdf-loading {
   position: absolute;
-  top: 40px; /* 预留PDF标题栏高度 */
+  top: 40px;
   left: 0;
   right: 0;
   bottom: 0;
@@ -1522,7 +1522,7 @@ onBeforeUnmount(() => {
 
 .pdf-iframe {
   width: 100%;
-  height: calc(100% - 40px); /* 减去PDF标题栏高度 */
+  height: calc(100% - 40px);
   border: none;
   flex: 1;
   transition: opacity 0.3s ease;
@@ -1639,161 +1639,6 @@ onBeforeUnmount(() => {
 .chat-input-wrapper.search-mode {
   border-color: #3f51b5;
   background-color: #f8f9ff;
-}
-
-/* 相关论文容器 */
-.related-papers-container {
-  margin-top: 16px;
-  border-top: 1px solid #e0e0e0;
-  padding-top: 12px;
-}
-
-.related-papers-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 12px;
-}
-
-.related-papers-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-/* 论文卡片样式 */
-.paper-card {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 12px;
-  background-color: #f9f9f9;
-  width: calc(50% - 6px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  transition: transform 0.2s, box-shadow 0.2s;
-  position: relative;
-  overflow: hidden;
-}
-
-.paper-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.paper-card-header {
-  margin-bottom: 8px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.paper-number {
-  background-color: #3f51b5;
-  color: white;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: bold;
-}
-
-.paper-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-  color: #1a1a1a;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.paper-authors {
-  font-size: 13px;
-  color: #555;
-  margin-bottom: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.paper-categories {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.paper-category {
-  font-size: 11px;
-  background-color: #e3f2fd;
-  color: #1976d2;
-  padding: 2px 6px;
-  border-radius: 12px;
-  white-space: nowrap;
-}
-
-.paper-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background-color: #1976d2;
-  color: white;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  transition: background-color 0.2s;
-}
-
-.paper-link:hover {
-  background-color: #1565c0;
-}
-
-.paper-link .icon-svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .paper-card {
-    width: 100%;
-  }
-}
-
-/* 内联论文链接样式 */
-.paper-link-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background-color: #e7f2fd;
-  color: #1976d2;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  transition: background-color 0.2s;
-  white-space: nowrap;
-  margin: 0 2px;
-}
-
-.paper-link-inline:hover {
-  background-color: #bbdefb;
-  text-decoration: none;
-}
-
-.paper-link-inline .icon-svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
 }
 
 /* 论文标签容器样式 */
@@ -1938,12 +1783,6 @@ body.pdf-active-page {
   --container-padding: 0 !important;
 }
 
-body.pdf-active-page .container {
-  max-width: none !important;
-  padding: 0 !important;
-  width: 100% !important;
-}
-
 /* 全局样式：去除主容器限制 */
 body {
   --app-max-width: none !important;
@@ -1961,16 +1800,5 @@ body {
 .row {
   margin-left: 0 !important;
   margin-right: 0 !important;
-}
-
-/* 添加文件上传和处理的动画效果 */
-@keyframes pulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.1); }
-  100% { transform: scale(1); }
-}
-
-.uploading {
-  animation: pulse 1.5s infinite ease-in-out;
 }
 </style> 

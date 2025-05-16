@@ -23,7 +23,7 @@
 
 <script lang="ts">
 import { defineComponent, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
-import { useRouter, RouteLocationNormalized } from 'vue-router'
+import { useRouter } from 'vue-router'
 import userService from './services/user'
 import api from './services/api'
 import { chatSessionStore } from './stores/chatSession'
@@ -34,21 +34,18 @@ export default defineComponent({
   setup() {
     const router = useRouter();
     
-    // Save scroll position before navigation
-    const saveScrollPositionBeforeLeave = (to: RouteLocationNormalized, from: RouteLocationNormalized): void => {
-      // Save current page scroll position
+    // 保存页面滚动位置
+    const saveScrollPosition = (path: string): void => {
       sessionStorage.setItem(
-        `scrollPos-${from.fullPath}`,
+        `scrollPos-${path}`,
         window.scrollY.toString()
       );
     };
 
-    // Update user visit records
+    // 更新用户访问记录
     const updateUserVisit = async (): Promise<void> => {
       try {
-        // Ensure user ID is initialized
         const userId = userService.getUserId();
-        // Call API to save user visit records (empty object, as server will use info from request headers)
         await api.saveUserPreferences({});
       } catch (error) {
         console.error('Failed to update user visit records:', error);
@@ -61,14 +58,10 @@ export default defineComponent({
         // 只有当没有活动会话时才创建新会话
         if (!chatSessionStore.hasActiveSession()) {
           console.log('Initializing global chat session');
-          const chatId = await chatSessionStore.createChatSession();
-          console.log('Global chat session initialized:', chatId);
-        } else {
-          console.log('Using existing chat session:', chatSessionStore.getChatId());
+          await chatSessionStore.createChatSession();
         }
       } catch (error) {
         console.error('Failed to initialize global chat session:', error);
-        // 不要让初始化错误阻止应用加载
       }
     };
     
@@ -76,35 +69,22 @@ export default defineComponent({
     const endChatSessionBeforeUnload = async (): Promise<void> => {
       if (chatSessionStore.hasActiveSession()) {
         console.log('Ending global chat session before unload');
-        try {
-          await chatSessionStore.endChatSession();
-        } catch (error) {
-          console.error('Error ending chat session:', error);
-          // 不阻止窗口关闭
-        }
+        await chatSessionStore.endChatSession();
       }
     };
     
     onMounted(async () => {
-      console.log('App mounted, initializing...');
+      // 添加导航钩子
+      router.beforeEach((to, from) => {
+        saveScrollPosition(from.fullPath);
+      });
       
-      // Add global navigation hook
-      router.beforeEach(saveScrollPositionBeforeLeave);
-      
-      // Update user visit records
-      try {
-        await updateUserVisit();
-        console.log('User visit records updated');
-      } catch (error) {
-        console.error('Failed to update user visit records:', error);
-        // 不阻止应用加载
-      }
+      // 更新用户访问记录
+      updateUserVisit();
 
-      // Add route listener to update user visit records on each route change
+      // 路由变化时更新用户访问记录
       router.afterEach(() => {
-        updateUserVisit().catch(error => {
-          console.error('Failed to update user visit records after navigation:', error);
-        });
+        updateUserVisit();
       });
       
       // 初始化全局聊天会话
@@ -112,8 +92,6 @@ export default defineComponent({
       
       // 添加窗口关闭事件监听器
       window.addEventListener('beforeunload', endChatSessionBeforeUnload);
-      
-      console.log('App initialization complete');
     });
     
     onBeforeUnmount(() => {
@@ -123,13 +101,6 @@ export default defineComponent({
       // 移除窗口关闭事件监听器
       window.removeEventListener('beforeunload', endChatSessionBeforeUnload);
     });
-    
-    onUnmounted(() => {
-      // Cleanup
-      router.beforeEach(() => {});
-    });
-    
-    return {};
   }
 })
 </script>

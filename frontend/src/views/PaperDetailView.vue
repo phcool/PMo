@@ -182,14 +182,14 @@
       </div>
       
       <!-- PDF Viewer -->
-      <div v-if="(showPdf && paper.pdf_url) || activeUploadedPdf" class="pdf-section">
+      <div v-if="(showPdf && paper.paper_id) || activeUploadedPdf" class="pdf-section">
         <button @click="closePdf" class="close-pdf-btn" title="Close PDF">
           <svg class="icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" fill="currentColor"/>
           </svg>
         </button>
         <iframe 
-          :src="activeUploadedPdf || paper.pdf_url + '#toolbar=1&navpanes=1&scrollbar=1&view=FitH'" 
+          :src="activeUploadedPdf || ossPdfUrl" 
           class="pdf-iframe" 
           frameborder="0"
           allowfullscreen
@@ -202,7 +202,7 @@
 <script>
 import { defineComponent, ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '../services/api'  // Remove .ts extension
+import api from '../services/api'
 import { getCategoryLabel } from '../types/paper'
 import { chatSessionStore } from '../stores/chatSession'
 
@@ -217,15 +217,31 @@ export default defineComponent({
     const error = ref(null);
     const showPdf = ref(false);
     
-    // PDF files management
-    const uploadedPdfs = ref([]); // 存储多个上传的PDF文件
-    const activeUploadedPdfIndex = ref(-1); // 当前活动PDF索引
-    const showFilesList = ref(false); // 控制文件列表显示
+    // 会话ID，用于跟踪临时文件
+    const sessionId = ref(generateSessionId());
     
-    // Add chatSessionId to store the chat session ID
+    // 使用服务器提供的临时PDF URL
+    const ossPdfUrl = computed(() => {
+      if (paper.value && paper.value.paper_id) {
+        return `/api/papers/${paper.value.paper_id}/view-pdf?session_id=${sessionId.value}`;
+      }
+      return '';
+    });
+    
+    // 生成唯一会话ID
+    function generateSessionId() {
+      return 'session_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    }
+    
+    // PDF文件管理
+    const uploadedPdfs = ref([]);
+    const activeUploadedPdfIndex = ref(-1);
+    const showFilesList = ref(false);
+    
+    // 聊天会话ID
     const chatSessionId = ref('');
     
-    // Computed property for the active PDF URL
+    // 计算当前活动PDF的URL
     const activeUploadedPdf = computed(() => {
       if (activeUploadedPdfIndex.value >= 0 && uploadedPdfs.value[activeUploadedPdfIndex.value]) {
         return uploadedPdfs.value[activeUploadedPdfIndex.value].url;
@@ -233,17 +249,17 @@ export default defineComponent({
       return null;
     });
     
-    // Chat state
+    // 聊天状态
     const chatMode = ref(false);
     const chatInput = ref('');
     const chatMessages = ref([]);
     const isChatLoading = ref(false);
     const chatError = ref(null);
     
-    // Reference for chat messages container
+    // 聊天消息容器引用
     const chatMessagesEl = ref(null);
     
-    // Format the date
+    // 格式化日期
     const formattedDate = computed(() => {
       if (!paper.value) return '';
       
@@ -259,7 +275,7 @@ export default defineComponent({
       }
     });
     
-    // Format file size
+    // 格式化文件大小
     const formatFileSize = (bytes) => {
       if (bytes === 0) return '0 Bytes';
       const k = 1024;
@@ -268,51 +284,60 @@ export default defineComponent({
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
     
-    // Toggle files list
+    // 切换文件列表显示
     const toggleFilesList = () => {
       showFilesList.value = !showFilesList.value;
-      // 如果打开文件列表，暂时隐藏PDF
       if (showFilesList.value) {
         showPdf.value = false;
       } else if (activeUploadedPdfIndex.value >= 0) {
-        // 如果关闭文件列表且有选中的文件，则显示PDF
         showPdf.value = true;
       }
     };
     
-    // Select a PDF from the list and close list
+    // 选择PDF并关闭列表
     const selectPdfAndCloseList = (index) => {
       activeUploadedPdfIndex.value = index;
       showPdf.value = true;
-      showFilesList.value = false; // 关闭文件列表
+      showFilesList.value = false;
     };
     
-    // Select a PDF from the list (without closing)
-    const selectPdf = (index) => {
-      activeUploadedPdfIndex.value = index;
-      showPdf.value = true;
-    };
-    
-    // Toggle PDF viewer
+    // 切换PDF查看器
     const togglePdfViewer = () => {
       showPdf.value = !showPdf.value;
-    };
-    
-    // Close PDF viewer
-    const closePdf = () => {
-      showPdf.value = false;
-      // 如果是查看上传的PDF，也关闭
-      if (activeUploadedPdf.value) {
-        activeUploadedPdfIndex.value = -1;
+      
+      // 如果关闭PDF查看器，清理临时文件
+      if (!showPdf.value) {
+        cleanupSessionFiles();
       }
     };
     
-    // 处理状态变量
+    // 关闭PDF查看器
+    const closePdf = () => {
+      showPdf.value = false;
+      if (activeUploadedPdf.value) {
+        activeUploadedPdfIndex.value = -1;
+      }
+      
+      // 清理临时文件
+      cleanupSessionFiles();
+    };
+    
+    // 清理会话临时文件
+    const cleanupSessionFiles = async () => {
+      try {
+        await api.cleanupSessionFiles(sessionId.value);
+        console.log("Cleaned up temporary PDF files");
+      } catch (e) {
+        console.error("Failed to clean up temporary PDF files:", e);
+      }
+    };
+    
+    // 文件处理状态
     const isProcessingFile = ref(false);
     const processingFileName = ref('');
     const statusCheckInterval = ref(null);
-    const pendingFiles = ref([]); // 存储待处理的文件
-    const currentProcessingIndex = ref(0); // 当前正在处理的文件索引
+    const pendingFiles = ref([]);
+    const currentProcessingIndex = ref(0);
     
     // 清理定时器
     onBeforeUnmount(() => {
@@ -321,131 +346,7 @@ export default defineComponent({
       }
     });
     
-    // 检查文件处理状态
-    const checkProcessingStatus = async () => {
-      if (!chatSessionId.value) return;
-      
-      try {
-        const status = await api.getProcessingStatus(chatSessionId.value);
-        isProcessingFile.value = status.processing;
-        
-        if (status.processing) {
-          processingFileName.value = status.file_name;
-        } else if (pendingFiles.value.length > 0 && currentProcessingIndex.value < pendingFiles.value.length - 1) {
-          // 当前文件处理完成，处理下一个文件
-          currentProcessingIndex.value++;
-          const nextFile = pendingFiles.value[currentProcessingIndex.value];
-          
-          // 更新消息，显示正在处理的新文件
-          chatMessages.value.push({
-            role: 'assistant',
-            content: `I've finished processing ${pendingFiles.value[currentProcessingIndex.value-1].name}. Now processing ${nextFile.name} (${currentProcessingIndex.value + 1}/${pendingFiles.value.length})...`
-          });
-          
-          // 滚动到底部
-          nextTick(() => {
-            smartScrollToBottom();
-          });
-          
-          // 更新当前处理的文件名
-          processingFileName.value = nextFile.name;
-          isProcessingFile.value = true;
-          
-          // 上传下一个文件
-          try {
-            await api.uploadPdfToChat(chatSessionId.value, nextFile);
-          } catch (e) {
-            console.error('Error uploading PDF for RAG processing:', e);
-            
-            // 提取错误信息
-            let errorMessage = "";
-            if (e.response && e.response.data && e.response.data.detail) {
-              errorMessage = e.response.data.detail;
-            } else {
-              errorMessage = "I encountered an error processing this file. It might be too large or complex.";
-            }
-            
-            chatMessages.value.push({
-              role: 'assistant',
-              content: `Error processing ${nextFile.name}: ${errorMessage}`
-            });
-            
-            // 滚动到底部
-            nextTick(() => {
-              smartScrollToBottom();
-            });
-            
-            // 继续下一个文件或完成处理
-            if (currentProcessingIndex.value < pendingFiles.value.length - 1) {
-              currentProcessingIndex.value++;
-              // 递归调用以处理下一个文件
-              setTimeout(() => checkProcessingStatus(), 100);
-            } else {
-              // 所有文件处理完成
-              completeProcessing(status);
-            }
-          }
-        } else if (!status.processing && statusCheckInterval.value) {
-          // 所有文件处理完成
-          completeProcessing(status);
-        }
-      } catch (e) {
-        console.error('Error checking processing status:', e);
-        // 发生错误，停止检查
-        if (statusCheckInterval.value) {
-          clearInterval(statusCheckInterval.value);
-          statusCheckInterval.value = null;
-        }
-      }
-    };
-    
-    // 所有文件处理完成
-    const completeProcessing = (status = null) => {
-      clearInterval(statusCheckInterval.value);
-      statusCheckInterval.value = null;
-      isProcessingFile.value = false;
-      
-      // 获取处理完成的文件总数
-      const filesCount = status && status.files_count ? status.files_count : pendingFiles.value.length;
-      
-      // 添加处理完成消息
-      let message = '';
-      if (filesCount === 1) {
-        // 单文件处理完成
-        const fileName = pendingFiles.value.length === 1 ? 
-          pendingFiles.value[0].name : 
-          (status && status.file_name ? status.file_name : "the document");
-          
-        message = `I've finished processing ${fileName}. Now I can answer your questions about this document. You can access the document anytime via the file button in the top right corner.`;
-      } else {
-        // 多文件处理完成
-        if (pendingFiles.value.length > 0) {
-          // 如果是本次上传的多个文件
-          const fileNames = pendingFiles.value.map(f => f.name).join(', ');
-          message = `I've finished processing all ${pendingFiles.value.length} documents: ${fileNames}. You can now ask me questions about any of these documents. You can access any document via the file button in the top right corner.`;
-        } else {
-          // 如果是之前上传的和本次上传的混合
-          message = `I've finished processing all documents. You now have ${filesCount} documents available. You can ask me questions about any of these documents. You can access any document via the file button in the top right corner.`;
-        }
-      }
-      
-      // 添加消息
-      chatMessages.value.push({
-        role: 'assistant',
-        content: message
-      });
-      
-      // 清空待处理队列
-      pendingFiles.value = [];
-      currentProcessingIndex.value = 0;
-      
-      // 滚动到底部
-      nextTick(() => {
-        smartScrollToBottom();
-      });
-    };
-
-    // 创建或获取聊天会话
+    // 获取或创建聊天会话
     const getChatSession = async () => {
       let chatId = '';
       
@@ -472,7 +373,7 @@ export default defineComponent({
       return chatId;
     };
 
-    // Handle file upload
+    // 处理文件上传
     const handleFileUpload = async (event) => {
       const files = event.target.files;
       if (!files || files.length === 0) return;
@@ -480,14 +381,10 @@ export default defineComponent({
       // 重置自动滚动
       shouldAutoScroll.value = true;
       
-      // 处理上传的每个文件
+      // 处理上传的文件
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        
-        // 为文件创建URL
         const fileUrl = URL.createObjectURL(file);
-        
-        // 添加到上传文件列表
         uploadedPdfs.value.push({
           name: file.name,
           size: file.size,
@@ -496,12 +393,9 @@ export default defineComponent({
         });
       }
       
-      // 默认不选中任何PDF，避免自动显示
+      // 默认不选中任何PDF
       activeUploadedPdfIndex.value = -1;
-      
-      // 确保关闭PDF查看
       showPdf.value = false;
-      // 不自动打开文件列表
       showFilesList.value = false;
       
       // 获取聊天会话ID
@@ -517,39 +411,33 @@ export default defineComponent({
         pendingFiles.value.push(files[i]);
       }
       
-      // 为上传的文件添加一条消息
+      // 添加用户上传消息
       if (files.length === 1) {
-        // 单文件上传
         chatMessages.value.push({
           role: 'user',
           content: `I've uploaded the paper: ${files[0].name}`
         });
         
-        // 设置处理状态
         isProcessingFile.value = true;
         processingFileName.value = files[0].name;
         
-        // 添加"正在处理"消息，告知用户可以通过文件按钮查看
         chatMessages.value.push({
           role: 'assistant',
-          content: `I'm currently processing ${files[0].name}. Please wait while I analyze the document. This may take a moment depending on the size of the PDF. You can access the document anytime by clicking the file button in the top right corner.`
+          content: `I'm currently processing ${files[0].name}. Please wait while I analyze the document.`
         });
       } else {
-        // 多文件上传
         const fileNames = Array.from(files).map(f => f.name).join(', ');
         chatMessages.value.push({
           role: 'user',
           content: `I've uploaded ${files.length} papers: ${fileNames}`
         });
         
-        // 设置处理状态
         isProcessingFile.value = true;
         processingFileName.value = files[0].name;
         
-        // 添加"正在处理"消息，通知进度
         chatMessages.value.push({
           role: 'assistant',
-          content: `I'm going to process all ${files.length} documents: ${fileNames}. Starting with ${files[0].name} (1/${files.length}). Please wait while I analyze these documents one by one. You can access any document anytime by clicking the file button in the top right corner.`
+          content: `I'm going to process all ${files.length} documents: ${fileNames}. Starting with ${files[0].name} (1/${files.length}).`
         });
       }
       
@@ -581,7 +469,7 @@ export default defineComponent({
         });
       }
       
-      // Reset file input
+      // 重置文件输入
       event.target.value = '';
       
       // 滚动到底部
@@ -590,96 +478,49 @@ export default defineComponent({
       });
     };
     
-    // Download PDF directly
-    const downloadPdf = async () => {
-      if (!paper.value || !paper.value.pdf_url) return;
-      
-      try {
-        // Get filename from URL
-        const url = paper.value.pdf_url;
-        
-        // Create safe filename from paper title
-        const sanitizedTitle = paper.value.title
-          .replace(/[\/\\:*?"<>|]/g, '_') // Replace invalid chars with underscore
-          .replace(/\s+/g, '_')          // Replace spaces with underscore
-          .replace(/__+/g, '_')          // Replace multiple underscores with single
-          .replace(/^_+|_+$/g, '')       // Remove leading/trailing underscores
-          .substring(0, 200);            // Limit length to avoid too long filenames
-        
-        const filename = `${sanitizedTitle}.pdf`;
-        
-        // Fetch the PDF
-        const response = await fetch(url);
-        const blob = await response.blob();
-        
-        // Create download link
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = filename;
-        
-        // Append to document, click and remove
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Clean up the URL object
-        setTimeout(() => {
-          window.URL.revokeObjectURL(downloadUrl);
-        }, 100);
-      } catch (e) {
-        console.error('Error downloading PDF:', e);
-        // Fallback to opening in new tab if download fails
-        window.open(paper.value.pdf_url, '_blank');
+    // 下载PDF
+    const downloadPdf = () => {
+      if (paper.value && paper.value.paper_id) {
+        // 打开临时PDF URL进行下载
+        window.open(ossPdfUrl.value, '_blank');
       }
     };
     
-    // Toggle chat mode
+    // 切换聊天模式
     const toggleChatMode = async () => {
       chatMode.value = !chatMode.value;
       
       if (!chatMode.value) {
-        // 退出聊天模式时清理上传的PDF和缓存
-        // 清理所有创建的对象URL
+        // 退出聊天模式时清理上传的PDF
         uploadedPdfs.value.forEach(pdf => {
           if (pdf.url) {
             URL.revokeObjectURL(pdf.url);
           }
         });
         
-        // 不再结束聊天会话，保留全局状态
-        
-        // 重置上传的PDF相关状态
         uploadedPdfs.value = [];
         activeUploadedPdfIndex.value = -1;
         showPdf.value = false;
         showFilesList.value = false;
         
-        // 清空聊天消息
         chatMessages.value = [];
       } else if (chatMode.value) {
         // 使用全局会话
         try {
-          // 获取或创建会话
           await getChatSession();
           
-          // 检查是否成功获取会话ID
           if (chatSessionId.value) {
-            // 添加问候消息
             chatMessages.value.push({
               role: 'assistant',
               content: `Hello! I'm an AI assistant that can help you understand the paper: "${paper.value.title}". 
 
-**Important:** Please upload the PDF of this paper using the "Upload PDF" button above. Without the PDF, I can only provide general information based on the title and abstract. With the PDF, I can analyze the paper in detail including methodology, results, figures, and tables.
-
-What would you like to know about this paper?`
+**Important:** Please upload the PDF of this paper using the "Upload PDF" button above.`
             });
           }
         } catch (e) {
           console.error('Error getting chat session:', e);
           chatError.value = 'Failed to initialize chat session';
           
-          // 添加一个简单的问候消息作为回退
           chatMessages.value.push({
             role: 'assistant',
             content: `Hello! I'm an AI assistant that can help you understand this paper. Please upload the PDF using the button above for detailed assistance.`
@@ -688,54 +529,44 @@ What would you like to know about this paper?`
       }
     };
     
-    // Send a chat message to the backend
+    // 发送聊天消息
     const sendChatMessage = async () => {
       if (!chatInput.value.trim() || isChatLoading.value || isProcessingFile.value) return;
       
-      // Add user message to chat
       const userMessage = chatInput.value.trim();
       chatMessages.value.push({ role: 'user', content: userMessage });
-      chatInput.value = ''; // Clear input
+      chatInput.value = '';
       isChatLoading.value = true;
       
-      // 重置自动滚动
       shouldAutoScroll.value = true;
       
-      // 添加一个空的助手消息，用于流式填充内容
       const assistantMessageIndex = chatMessages.value.length;
       chatMessages.value.push({
         role: 'assistant',
         content: ''
       });
       
-      // 发送消息后滚动到底部
       nextTick(() => {
         smartScrollToBottom();
       });
       
       try {
-        // 确保我们有一个有效的聊天会话ID
         if (!chatSessionId.value) {
           await getChatSession();
         }
         
-        // 发送消息到会话
         await api.sendChatMessage(
           chatSessionId.value,
           userMessage,
-          // 流式回调处理函数
           (content, isDone) => {
-            // 将内容追加到当前助手消息
             if (content) {
               chatMessages.value[assistantMessageIndex].content += content;
               
-              // 每次有新内容时，根据用户位置决定是否滚动到底部
               nextTick(() => {
                 smartScrollToBottom();
               });
             }
             
-            // 如果是最后一个块，完成加载
             if (isDone) {
               isChatLoading.value = false;
             }
@@ -744,28 +575,23 @@ What would you like to know about this paper?`
       } catch (e) {
         console.error('Error in chat:', e);
         chatError.value = 'Failed to get a response. Please try again.';
-        // 如果出错，更新消息内容
         chatMessages.value[assistantMessageIndex].content = 
           'Sorry, I encountered an error processing your request. Please try again.';
         isChatLoading.value = false;
       }
     };
     
-    // Go back to previous page
+    // 返回上一页
     const goBack = () => {
-      // Save previous page scroll position to sessionStorage
       if (document.referrer.includes(window.location.host)) {
-        // Get the referring page path
         const referrer = new URL(document.referrer).pathname;
-        // Restore the previously saved scroll position to sessionStorage
         sessionStorage.setItem(`scrollPos-${referrer}`, '0');
       }
       router.go(-1);
     };
     
-    // Clean up resources when component unmounts
+    // 清理资源
     const cleanup = () => {
-      // 清理所有创建的对象URL
       uploadedPdfs.value.forEach(pdf => {
         if (pdf.url) {
           URL.revokeObjectURL(pdf.url);
@@ -775,36 +601,29 @@ What would you like to know about this paper?`
     
     // 删除文件
     const deleteFile = (index) => {
-      // 如果删除的是当前显示的文件
       if (index === activeUploadedPdfIndex.value) {
-        // 如果是最后一个文件，关闭PDF查看器
         if (uploadedPdfs.value.length === 1) {
           showPdf.value = false;
           activeUploadedPdfIndex.value = -1;
         } else {
-          // 如果不是最后一个文件，则显示前一个或后一个文件
           activeUploadedPdfIndex.value = index === 0 ? 0 : index - 1;
         }
       } else if (index < activeUploadedPdfIndex.value) {
-        // 如果删除的文件在当前显示文件之前，调整索引
         activeUploadedPdfIndex.value--;
       }
       
-      // 释放对象URL
       if (uploadedPdfs.value[index].url) {
         URL.revokeObjectURL(uploadedPdfs.value[index].url);
       }
       
-      // 从数组中移除该文件
       uploadedPdfs.value.splice(index, 1);
       
-      // 如果没有文件了，关闭文件列表
       if (uploadedPdfs.value.length === 0) {
         showFilesList.value = false;
       }
     };
     
-    // 控制自动滚动的变量
+    // 自动滚动控制
     const shouldAutoScroll = ref(true);
     const isUserScrolling = ref(false);
     
@@ -814,7 +633,6 @@ What would you like to know about this paper?`
       
       const element = chatMessagesEl.value;
       const scrollBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-      // 如果用户距离底部很近(20px以内)，认为用户在底部
       return scrollBottom < 20;
     };
     
@@ -825,13 +643,12 @@ What would you like to know about this paper?`
       isUserScrolling.value = true;
       shouldAutoScroll.value = checkIfUserAtBottom();
       
-      // 防抖：用户停止滚动200ms后重置状态
       setTimeout(() => {
         isUserScrolling.value = false;
       }, 200);
     };
     
-    // 智能滚动到底部（只有用户在底部时才滚动）
+    // 智能滚动到底部
     const smartScrollToBottom = () => {
       if (!chatMessagesEl.value || isUserScrolling.value) return;
       
@@ -848,7 +665,116 @@ What would you like to know about this paper?`
       }
     };
     
-    // Fetch paper details
+    // 检查文件处理状态
+    const checkProcessingStatus = async () => {
+      if (!chatSessionId.value) return;
+      
+      try {
+        const status = await api.getProcessingStatus(chatSessionId.value);
+        isProcessingFile.value = status.processing;
+        
+        if (status.processing) {
+          processingFileName.value = status.file_name;
+        } else if (pendingFiles.value.length > 0 && currentProcessingIndex.value < pendingFiles.value.length - 1) {
+          // 当前文件处理完成，处理下一个文件
+          currentProcessingIndex.value++;
+          const nextFile = pendingFiles.value[currentProcessingIndex.value];
+          
+          chatMessages.value.push({
+            role: 'assistant',
+            content: `I've finished processing ${pendingFiles.value[currentProcessingIndex.value-1].name}. Now processing ${nextFile.name} (${currentProcessingIndex.value + 1}/${pendingFiles.value.length})...`
+          });
+          
+          nextTick(() => {
+            smartScrollToBottom();
+          });
+          
+          processingFileName.value = nextFile.name;
+          isProcessingFile.value = true;
+          
+          try {
+            await api.uploadPdfToChat(chatSessionId.value, nextFile);
+          } catch (e) {
+            console.error('Error uploading PDF for RAG processing:', e);
+            
+            let errorMessage = "";
+            if (e.response && e.response.data && e.response.data.detail) {
+              errorMessage = e.response.data.detail;
+            } else {
+              errorMessage = "I encountered an error processing this file. It might be too large or complex.";
+            }
+            
+            chatMessages.value.push({
+              role: 'assistant',
+              content: `Error processing ${nextFile.name}: ${errorMessage}`
+            });
+            
+            nextTick(() => {
+              smartScrollToBottom();
+            });
+            
+            if (currentProcessingIndex.value < pendingFiles.value.length - 1) {
+              currentProcessingIndex.value++;
+              setTimeout(() => checkProcessingStatus(), 100);
+            } else {
+              // 所有文件处理完成
+              completeProcessing(status);
+            }
+          }
+        } else if (!status.processing && statusCheckInterval.value) {
+          // 所有文件处理完成
+          completeProcessing(status);
+        }
+      } catch (e) {
+        console.error('Error checking processing status:', e);
+        if (statusCheckInterval.value) {
+          clearInterval(statusCheckInterval.value);
+          statusCheckInterval.value = null;
+        }
+      }
+    };
+    
+    // 文件处理完成
+    const completeProcessing = (status = null) => {
+      clearInterval(statusCheckInterval.value);
+      statusCheckInterval.value = null;
+      isProcessingFile.value = false;
+      
+      const filesCount = status && status.files_count ? status.files_count : pendingFiles.value.length;
+      
+      let message = '';
+      if (filesCount === 1) {
+        const fileName = pendingFiles.value.length === 1 ? 
+          pendingFiles.value[0].name : 
+          (status && status.file_name ? status.file_name : "the document");
+          
+        message = `I've finished processing ${fileName}. Now I can answer your questions about this document.`;
+      } else {
+        if (pendingFiles.value.length > 0) {
+          const fileNames = pendingFiles.value.map(f => f.name).join(', ');
+          message = `I've finished processing all ${pendingFiles.value.length} documents: ${fileNames}.`;
+        } else {
+          message = `I've finished processing all documents. You now have ${filesCount} documents available.`;
+        }
+      }
+      
+      // 添加消息
+      chatMessages.value.push({
+        role: 'assistant',
+        content: message
+      });
+      
+      // 清空待处理队列
+      pendingFiles.value = [];
+      currentProcessingIndex.value = 0;
+      
+      // 滚动到底部
+      nextTick(() => {
+        smartScrollToBottom();
+      });
+    };
+    
+    // 获取论文详情
     onMounted(async () => {
       const paperId = route.params.id;
       
@@ -859,15 +785,12 @@ What would you like to know about this paper?`
       }
       
       try {
-        // Get paper details
         paper.value = await api.getPaperById(paperId);
         
-        // Record paper view
         try {
           await api.recordPaperView(paperId);
         } catch (e) {
           console.error('Error recording paper view:', e);
-          // Does not affect main process, only logs the error
         }
       } catch (e) {
         console.error('Error fetching paper details:', e);
@@ -876,7 +799,6 @@ What would you like to know about this paper?`
         isLoading.value = false;
       }
       
-      // 清理资源
       window.addEventListener('beforeunload', cleanup);
     });
     
@@ -884,6 +806,9 @@ What would you like to know about this paper?`
     onBeforeUnmount(() => {
       cleanup();
       window.removeEventListener('beforeunload', cleanup);
+      
+      // 清理临时文件
+      cleanupSessionFiles();
       
       // 不再结束聊天会话，保留在全局状态中
       console.log('Paper detail component unmounting, keeping global session:', chatSessionId.value);
@@ -930,7 +855,10 @@ What would you like to know about this paper?`
       closePdf,
       handleUserScroll,
       shouldAutoScroll,
-      scrollToBottom
+      scrollToBottom,
+      ossPdfUrl,
+      sessionId,
+      cleanupSessionFiles
     };
   }
 })
