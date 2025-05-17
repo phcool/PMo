@@ -14,11 +14,11 @@ import uuid
 import glob
 from datetime import datetime, timedelta
 import aiohttp
-import oss2
 from urllib.parse import quote
 
 from app.services.vector_search_service import vector_search_service
 from app.services.llm_service import llm_service
+from app.services.oss_service import oss_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +33,6 @@ class PdfService:
         self.chunk_overlap = int(os.getenv("PDF_CHUNK_OVERLAP", "200"))  # Overlap between chunks
         self.max_tokens_per_chunk = int(os.getenv("PDF_MAX_TOKENS", "4000"))  # Max tokens for each chunk
         self.file_expiry_hours = float(os.getenv("PDF_FILE_EXPIRY_HOURS", "0.5"))  # 文件过期时间（小时），默认30分钟
-        
-        # 阿里云 OSS 配置
-        self.oss_access_key_id = os.getenv("OSS_ACCESS_KEY_ID", "")
-        self.oss_access_key_secret = os.getenv("OSS_ACCESS_KEY_SECRET", "")
-        self.oss_endpoint = os.getenv("OSS_ENDPOINT", "")
-        self.oss_bucket_name = os.getenv("OSS_BUCKET_NAME", "")
-        self.oss_papers_prefix = os.getenv("OSS_PAPERS_PREFIX", "papers/")
         
         # 文件访问记录，用于跟踪文件最后访问时间 {"file_path": {"last_access": timestamp, "chat_id": "chat_id"}}
         self.file_access_records = {}
@@ -64,100 +57,24 @@ class PdfService:
             保存的本地文件路径
         """
         try:
-            # 日志记录请求细节
-            logger.info(f"Attempting to get PDF from OSS for paper_id: {paper_id}, custom filename: {filename}")
+            # 使用oss_service下载论文
+            local_file_path = await oss_service.download_paper_from_oss(
+                paper_id=paper_id,
+                target_dir=self.upload_dir,
+                custom_filename=filename
+            )
             
-            # 清理paper_id，移除可能的非法字符
-            sanitized_paper_id = re.sub(r'[^\w\.-]', '_', paper_id)
-            if sanitized_paper_id != paper_id:
-                logger.info(f"Sanitized paper_id from '{paper_id}' to '{sanitized_paper_id}'")
-                paper_id = sanitized_paper_id
-            
-            match_format = re.match(r'^(\d{2})(\d{2})\.(\d+)', paper_id)
-            
-            year = None
-            month = None
-            
-            year, month, number = match_format.groups()
-            # 使用标准格式 papers/YY/MM/YYMM_xxxxx.pdf
-            paper_id=paper_id.replace('.', '_')
-            oss_key = f"{self.oss_papers_prefix}{year}/{month}/{paper_id}.pdf"
-            # 创建对应的本地目录结构
-            local_dir = self.upload_dir / year / month
-            
-            # 确保本地目录存在
-            os.makedirs(local_dir, exist_ok=True)
-            
-            # 使用与OSS相同的文件名保存到本地
-            local_filename = f"{paper_id}.pdf"
-            if filename:  # 如果提供了特定文件名，保存一个备份文件名
-                name, ext = os.path.splitext(filename)
-                if not ext.lower() == '.pdf':
-                    ext = '.pdf'
-                local_filename = f"{paper_id}_{name}{ext}"
-            
-            # 完整的本地文件路径
-            local_file_path = local_dir / local_filename
-            # 检查文件是否已经存在本地
-            if await aiofiles.os.path.exists(local_file_path):
-                logger.info(f"PDF file already exists locally at {local_file_path}")
-                # 更新文件访问时间
-                self._update_file_access(str(local_file_path), None)
-                return str(local_file_path)
-            
-            logger.info(f"PDF file not found locally, trying to get from OSS with key: {oss_key}")
-            
-            # 记录OSS配置信息（排除敏感信息）
-            logger.info(f"Using OSS endpoint: {self.oss_endpoint}, bucket: {self.oss_bucket_name}")
-            
-            # 初始化OSS客户端
-            try:
-                auth = oss2.Auth(self.oss_access_key_id, self.oss_access_key_secret)
-                bucket = oss2.Bucket(auth, self.oss_endpoint, self.oss_bucket_name)
-                logger.info("Successfully initialized OSS client")
-            except Exception as e:
-                logger.error(f"Failed to initialize OSS client: {str(e)}")
+            # 如果成功获取文件，更新文件访问记录
+            if local_file_path:
+                self._update_file_access(local_file_path, None)  # 初始时chat_id未知
+                logger.info(f"Successfully got PDF from OSS service: {local_file_path}")
+                return local_file_path
+            else:
+                logger.error(f"Failed to get PDF from OSS for paper ID: {paper_id}")
                 return ""
-            
-            # 直接从OSS下载文件
-            try:
-                logger.info(f"Attempting to download object from OSS with key: {oss_key}")
-                # 下载文件到临时内存
-                result = bucket.get_object(oss_key)
-                file_content = result.read()
-                logger.info(f"Successfully downloaded {len(file_content)} bytes from OSS")
-            except oss2.exceptions.NoSuchKey:
-                logger.error(f"OSS key not found: {oss_key}")
-                return ""
-            except oss2.exceptions.OssError as e:
-                logger.error(f"OSS error during download: {str(e)}")
-                return ""
-            except Exception as e:
-                logger.error(f"Unexpected error during OSS download: {str(e)}")
-                return ""
-            
-            # 如果没有获取到内容，返回空字符串
-            if not file_content:
-                logger.error(f"Failed to download PDF for paper ID: {paper_id}")
-                return ""
-            
-            # 保存到本地文件
-            try:
-                async with aiofiles.open(local_file_path, 'wb') as f:
-                    await f.write(file_content)
-                logger.info(f"Successfully saved downloaded PDF to {local_file_path} ({len(file_content)} bytes)")
-            except Exception as e:
-                logger.error(f"Failed to save PDF file to {local_file_path}: {str(e)}")
-                return ""
-            
-            # 记录文件访问时间
-            self._update_file_access(str(local_file_path), None)  # 初始时chat_id未知
-            
-            logger.info(f"Successfully downloaded and saved PDF from OSS to {local_file_path}")
-            return str(local_file_path)
-            
+                
         except Exception as e:
-            logger.error(f"Error getting PDF from OSS for paper ID {paper_id}: {str(e)}", exc_info=True)
+            logger.error(f"Error in get_pdf_from_oss for paper ID {paper_id}: {str(e)}", exc_info=True)
             return ""
     
     def _update_file_access(self, file_path: str, chat_id: Optional[str] = None):
@@ -433,6 +350,37 @@ class PdfService:
         self._update_file_access(file_path, chat_id)
         
         try:
+            # 尝试从文件路径中提取论文ID
+            file_name = os.path.basename(file_path)
+            paper_id_match = re.search(r'(\d{4}\.\d+)', file_name)
+            paper_id = None
+            
+            if paper_id_match:
+                paper_id = paper_id_match.group(1)
+                logger.info(f"Extracted paper ID from filename: {paper_id}")
+            else:
+                # 从chat_service获取paper_id
+                from app.services.chat_service import chat_service
+                if chat_id in chat_service.active_chats and "paper_id" in chat_service.active_chats[chat_id]:
+                    paper_id = chat_service.active_chats[chat_id]["paper_id"]
+                    logger.info(f"Using paper ID from chat session: {paper_id}")
+            
+            # 如果能找到paper_id，先尝试从OSS获取向量嵌入
+            if paper_id:
+                logger.info(f"Attempting to get existing vector embeddings for paper ID: {paper_id} from OSS")
+                chunks, embeddings = await oss_service.get_vector_embeddings(paper_id)
+                
+                if chunks and embeddings:
+                    logger.info(f"Found existing vector embeddings for paper ID: {paper_id}, chunks: {len(chunks)}")
+                    # 将OSS中的向量存储应用到当前会话
+                    self._store_session_vectors(chat_id, chunks, embeddings)
+                    return True
+                else:
+                    logger.info(f"No existing vector embeddings found for paper ID: {paper_id}, will create new ones")
+            
+            # 如果没有找到现有向量，执行常规处理
+            logger.info(f"Processing PDF for vector embeddings: {file_path}")
+            
             # Extract text from PDF
             text_content = await self.extract_text_from_pdf(file_path)
             if not text_content:
@@ -477,6 +425,15 @@ class PdfService:
             
             # Store the chunks and embeddings in memory for this session
             self._store_session_vectors(chat_id, chunks, all_embeddings)
+            
+            # 如果有论文ID，将向量嵌入保存到OSS
+            if paper_id:
+                logger.info(f"Saving vector embeddings for paper ID: {paper_id} to OSS")
+                save_success = await oss_service.save_vector_embeddings(paper_id, chunks, all_embeddings)
+                if save_success:
+                    logger.info(f"Successfully saved vector embeddings for paper ID: {paper_id} to OSS")
+                else:
+                    logger.warning(f"Failed to save vector embeddings for paper ID: {paper_id} to OSS")
             
             logger.info(f"Successfully created vector store for chat session: {chat_id}")
             return True
@@ -642,6 +599,94 @@ class PdfService:
         except Exception as e:
             logger.error(f"Error saving uploaded PDF {filename}: {str(e)}")
             return ""
+    
+    async def update_chat_files(self, chat_id: str, file_path: str, paper_id: str, paper_title: Optional[str] = None) -> Dict[str, Any]:
+        """
+        更新聊天会话的文件列表，避免重复添加同一篇论文
+        
+        Args:
+            chat_id: 聊天会话ID
+            file_path: PDF文件路径
+            paper_id: 论文ID
+            paper_title: 论文标题，用于显示更友好的文件名
+            
+        Returns:
+            包含更新状态的字典，例如 {"success": True, "already_exists": False, "file_info": {...}}
+        """
+        try:
+            # 导入chat_service，避免循环引用
+            from app.services.chat_service import chat_service
+            
+            # 检查聊天会话是否存在
+            if chat_id not in chat_service.active_chats:
+                logger.error(f"Chat session not found: {chat_id}")
+                return {"success": False, "error": "Chat session not found"}
+            
+            # 生成友好的文件名
+            filename = f"{paper_id}.pdf"
+            if paper_title:
+                # 清理标题中的特殊字符，使其适合作为文件名
+                clean_title = re.sub(r'[^\w\s-]', '', paper_title).strip()
+                # 将空格替换为下划线，避免文件名中的空格
+                clean_title = re.sub(r'\s+', '_', clean_title)
+                # 限制长度
+                if len(clean_title) > 100:
+                    clean_title = clean_title[:97] + "..."
+                filename = f"{clean_title} ({paper_id}).pdf"
+            
+            # 检查是否是该会话的第一个PDF
+            is_first_pdf = "files" not in chat_service.active_chats[chat_id]
+            
+            # 初始化文件列表（如果不存在）
+            if is_first_pdf:
+                chat_service.active_chats[chat_id]["files"] = []
+            
+            # 检查是否已经添加了相同的paper_id
+            existing_files = chat_service.active_chats[chat_id].get("files", [])
+            for existing_file in existing_files:
+                if existing_file.get("paper_id") == paper_id:
+                    logger.info(f"Paper {paper_id} already exists in chat session {chat_id}")
+                    
+                    # 更新当前活跃文件路径（即使是已存在的文件）
+                    chat_service.active_chats[chat_id]["file_path"] = existing_file["file_path"]
+                    
+                    # 更新会话关联的论文ID
+                    chat_service.active_chats[chat_id]["paper_id"] = paper_id
+                    
+                    return {
+                        "success": True, 
+                        "already_exists": True, 
+                        "file_info": existing_file
+                    }
+            
+            # 创建新的文件信息对象
+            file_info = {
+                "file_path": file_path,
+                "filename": filename,
+                "paper_id": paper_id,
+                "id": str(uuid.uuid4()),  # 为文件添加唯一ID，用于API引用
+                "added_at": datetime.now().isoformat()
+            }
+            
+            # 添加当前文件到文件列表
+            chat_service.active_chats[chat_id]["files"].append(file_info)
+            
+            # 更新当前活跃文件路径
+            chat_service.active_chats[chat_id]["file_path"] = file_path
+            
+            # 更新会话关联的论文ID
+            chat_service.active_chats[chat_id]["paper_id"] = paper_id
+            
+            logger.info(f"Added paper {paper_id} to chat session {chat_id}")
+            return {
+                "success": True, 
+                "already_exists": False, 
+                "file_info": file_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Error updating chat files for session {chat_id}: {str(e)}")
+            return {"success": False, "error": str(e)}
 
 # Instantiate a singleton
 pdf_service = PdfService() 

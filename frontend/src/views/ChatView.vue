@@ -368,14 +368,36 @@ onMounted(async () => {
     }, 15000); // 15秒后允许手动绕过
     
     // 设置一个超时，如果30秒后仍在处理，也强制取消处理状态
-    setTimeout(() => {
+    setTimeout(async () => {
       if (isPaperProcessing.value) {
         console.log('Force clearing paper processing status after timeout');
+        
+        // 即使超时也刷新一次文件列表
+        await loadSessionFiles();
+        
+        // 解除处理状态
         isPaperProcessing.value = false;
         chatSessionStore.setProcessingPaper(false);
         
         // 不清空pendingPaperId，这样即使超时也能保持关联关系
         // 但不再阻止用户发送消息
+        
+        // 自动选中并显示文件，如果有的话
+        if (pdfFiles.value && pdfFiles.value.length > 0) {
+          // 尝试找到与pendingPaperId匹配的文件
+          const pendingPaperId = chatSessionStore.getPendingPaperId();
+          const matchingFile = pdfFiles.value.find(file => 
+            file.name.includes(pendingPaperId) || 
+            (file.paper_id && file.paper_id === pendingPaperId)
+          );
+          
+          const fileToShow = matchingFile || pdfFiles.value[pdfFiles.value.length - 1];
+          
+          // 显示文件列表和选中的文件
+          showFilesList.value = true;
+          handleSelectFile(fileToShow);
+        }
+        
         toast.info('论文已关联到会话，但处理可能需要更长时间。您现在可以发送消息了。');
       }
     }, 30000); // 增加到30秒，给处理大文件更多时间
@@ -897,24 +919,47 @@ const checkPaperProcessingStatus = async () => {
     
     // 只有当API明确返回processing=false时才更新状态
     if (processingResponse.data && processingResponse.data.processing === false) {
-      // 当API报告处理完成后，检查文件是否实际存在
-      const filesResponse = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/files`);
+      // 标记处理已完成
+      console.log('Processing reported complete by API');
+      
+      // 先刷新文件列表，确保能获取到最新的文件
+      await loadSessionFiles();
       
       // 验证文件列表中确实有文件
-      if (filesResponse.data && Array.isArray(filesResponse.data) && filesResponse.data.length > 0) {
+      if (pdfFiles.value && pdfFiles.value.length > 0) {
         console.log('Processing complete and files are available');
         
         // 在确认有文件且API报告处理完成后才更新状态
         isPaperProcessing.value = false;
         chatSessionStore.setProcessingPaper(false);
         chatSessionStore.clearPendingPaperId();
+        
+        // 显示成功消息
         toast.success('论文处理完成，现在可以开始聊天了');
+        
+        // 自动选中并打开最新处理的文件
+        const lastProcessedFile = pdfFiles.value[pdfFiles.value.length - 1];
+        if (lastProcessedFile) {
+          // 稍微延迟执行，确保UI已经更新
+          setTimeout(() => {
+            console.log('Auto-selecting the last processed file:', lastProcessedFile.name);
+            handleSelectFile(lastProcessedFile);
+            
+            // 确保文件列表是可见的
+            if (!showFilesList.value) {
+              showFilesList.value = true;
+            }
+          }, 500);
+        }
       } else {
         console.log('Processing reported complete but no files found yet, continuing to wait');
+        
+        // 再次尝试加载文件列表
+        setTimeout(() => loadSessionFiles(), 1000);
       }
     } else if (processingResponse.data) {
       console.log(`Paper processing status: processing=${processingResponse.data.processing}`, 
-                  processingResponse.data.file_name ? `file=${processingResponse.data.file_name}` : '');
+                processingResponse.data.file_name ? `file=${processingResponse.data.file_name}` : '');
     }
   } catch (error) {
     console.error('Error checking paper processing status:', error);
@@ -940,9 +985,29 @@ onBeforeUnmount(() => {
 });
 
 // 绕过处理检查
-function bypassProcessingCheck() {
+async function bypassProcessingCheck() {
+  // 先尝试刷新文件列表
+  await loadSessionFiles();
+  
+  // 解除处理状态
   isPaperProcessing.value = false;
   chatSessionStore.setProcessingPaper(false);
+  
+  // 如果有文件，自动显示
+  if (pdfFiles.value && pdfFiles.value.length > 0) {
+    const pendingPaperId = chatSessionStore.getPendingPaperId();
+    const matchingFile = pdfFiles.value.find(file => 
+      file.name.includes(pendingPaperId) || 
+      (file.paper_id && file.paper_id === pendingPaperId)
+    );
+    
+    const fileToShow = matchingFile || pdfFiles.value[pdfFiles.value.length - 1];
+    
+    // 显示文件列表和选中的文件
+    showFilesList.value = true;
+    handleSelectFile(fileToShow);
+  }
+  
   toast.info('已绕过处理检查，您现在可以发送消息了。但论文可能尚未完全处理，回答准确性可能受影响。');
 }
 </script>

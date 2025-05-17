@@ -142,9 +142,10 @@ class ChatService:
             filename = f"{paper_id}.pdf"
             self.processing_files[chat_id] = {"processing": True, "file_name": filename}
             
-            # 获取论文数据，仅作日志记录
+            # 获取论文数据，用于日志记录和生成友好的文件名
             paper = await db_service.get_paper_by_id(paper_id)
-            logger.info(f"Processing paper {paper_id}: {paper.title if paper else 'Unknown title'}")
+            paper_title = paper.title if paper else None
+            logger.info(f"Processing paper {paper_id}: {paper_title or 'Unknown title'}")
             
             # 从OSS获取PDF
             logger.info(f"Requesting PDF from OSS for paper_id: {paper_id}")
@@ -163,25 +164,24 @@ class ChatService:
                 
             logger.info(f"Successfully obtained PDF file at: {file_path}")
             
-            # 检查是否是该会话的第一个PDF
-            is_first_pdf = "files" not in self.active_chats[chat_id]
+            # 更新聊天会话的文件列表，使用论文标题作为文件名
+            update_result = await pdf_service.update_chat_files(chat_id, file_path, paper_id, paper_title)
             
-            # 初始化文件列表（如果不存在）
-            if is_first_pdf:
-                self.active_chats[chat_id]["files"] = []
+            if not update_result["success"]:
+                logger.error(f"Failed to update chat files: {update_result.get('error', 'Unknown error')}")
+                self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                return False
                 
-            # 添加当前文件到文件列表
-            self.active_chats[chat_id]["files"].append({
-                "file_path": file_path,
-                "filename": filename,
-                "paper_id": paper_id
-            })
-            
-            # 更新当前活跃文件路径
-            self.active_chats[chat_id]["file_path"] = file_path
-            
-            # 更新会话关联的论文ID
-            self.active_chats[chat_id]["paper_id"] = paper_id
+            # 如果文件已存在于会话中，检查是否需要处理
+            if update_result.get("already_exists"):
+                logger.info(f"Paper {paper_id} already exists in chat session {chat_id}, checking if processing is needed")
+                
+                # 获取文件的数量信息
+                files_count = len(self.active_chats[chat_id].get("files", []))
+                
+                # 论文已经关联到此会话并处理过，无需再次处理
+                logger.info(f"Paper {paper_id} already processed for this chat session, skipping processing")
+                return True
             
             # 为PDF创建向量存储
             logger.info(f"Creating vector store for file: {file_path}")
@@ -196,7 +196,7 @@ class ChatService:
                 # 更新处理状态，包含文件数量信息
                 self.processing_files[chat_id] = {
                     "processing": False, 
-                    "file_name": filename,
+                    "file_name": update_result["file_info"].get("filename", filename),
                     "files_count": files_count
                 }
                 
