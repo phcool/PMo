@@ -143,12 +143,6 @@ export default defineComponent({
       
       try {
         paper.value = await api.getPaperById(paperId);
-        
-        try {
-          await api.recordPaperView(paperId);
-        } catch (e) {
-          console.error('Error recording paper view:', e);
-        }
       } catch (e) {
         console.error('Error fetching paper details:', e);
         error.value = 'Failed to fetch paper details. Please try again later.';

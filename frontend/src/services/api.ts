@@ -37,6 +37,7 @@ export interface IApiService {
   endChatSession(chatId: string): Promise<any>;
   getProcessingStatus(chatId: string): Promise<ProcessingStatus>;
   associatePaperWithChat(paperId: string, chatId: string): Promise<{success: boolean, message: string}>;
+  searchPapers(payload: { query: string, limit?: number }): Promise<any>;
 }
 
 /**
@@ -276,6 +277,24 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to associate paper with chat:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Search papers by query
+   * @param payload { query, limit }
+   * @returns Promise with search results
+   */
+  async searchPapers(payload: { query: string, limit?: number }): Promise<any> {
+    try {
+      const response = await this.api.post('/api/search/', {
+        query: payload.query,
+        limit: payload.limit ?? 30
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to search papers:', error);
       throw error;
     }
   }

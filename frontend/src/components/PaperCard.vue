@@ -1,7 +1,7 @@
 <template>
   <div class="paper-card">
     <h3 class="paper-title">
-      <a :href="`https://arxiv.org/abs/${paper.paper_id}`" target="_blank" rel="noopener" @click="recordView">
+      <a :href="`https://arxiv.org/abs/${paper.paper_id}`" target="_blank" rel="noopener">
         {{ paper.title }}
       </a>
     </h3>
@@ -24,7 +24,7 @@
     <p class="paper-abstract">{{ truncatedAbstract }}</p>
     
     <div class="paper-actions">
-      <a :href="paper.pdf_url" target="_blank" rel="noopener" class="action-button" @click="recordView">
+      <a :href="paper.pdf_url" target="_blank" rel="noopener" class="action-button">
         Open PDF
       </a>
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
@@ -96,19 +96,6 @@ export default defineComponent({
       return abstract.substring(0, 250) + '...';
     });
     
-    // Record paper view
-    const recordView = () => {
-      // Use async function and catch errors without blocking user interaction
-      setTimeout(async () => {
-        try {
-          await api.recordPaperView(props.paper.paper_id);
-          console.log('Paper view recorded');
-        } catch (error) {
-          console.error('Failed to record paper view:', error);
-        }
-      }, 0);
-    };
-    
     // 开始与论文聊天
     const startChatWithPaper = async () => {
       try {
@@ -159,7 +146,6 @@ export default defineComponent({
       formattedDate,
       truncatedAbstract,
       getCategoryLabel,
-      recordView,
       startChatWithPaper
     };
   }
