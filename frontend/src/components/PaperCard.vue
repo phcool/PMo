@@ -30,9 +30,7 @@
       <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
         Details
       </router-link>
-      <button @click="startChatWithPaper" class="action-button chat-button">
-        Chat
-      </button>
+      <ChatButton :paper-id="paper.paper_id" />
     </div>
   </div>
 </template>
@@ -44,9 +42,14 @@ import api from '../services/api'
 import { useRouter } from 'vue-router'
 import { chatSessionStore } from '../stores/chatSession'
 import { useToast } from 'vue-toastification'
+import ChatButton from './ChatButton.vue'
 
 export default defineComponent({
   name: 'PaperCard',
+  
+  components: {
+    ChatButton
+  },
   
   props: {
     paper: {

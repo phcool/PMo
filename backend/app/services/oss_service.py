@@ -202,7 +202,6 @@ class OssService:
             try:
                 # 获取文件元数据，检查是否存在
                 meta = bucket.head_object(oss_key)
-                exists = True
                 logger.info(f"Found embeddings file for {paper_id}, size: {meta.content_length} bytes")
             except oss2.exceptions.NoSuchKey:
                 logger.info(f"No embeddings found for paper_id: {paper_id}")

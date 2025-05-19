@@ -18,7 +18,6 @@ router = APIRouter()
 # Request and response models
 class ChatSessionResponse(BaseModel):
     chat_id: str
-    paper_id: Optional[str] = None
     created_at: datetime
 
 class ChatMessage(BaseModel):
@@ -49,24 +48,16 @@ class AttachPaperRequest(BaseModel):
 
 # Create a new chat session
 @router.post("/sessions", response_model=ChatSessionResponse)
-async def create_chat_session(
-    paper_id: Optional[str] = Query(None, description="Optional paper ID if chatting about a specific paper")
-):
+async def create_chat_session():
     """
-    Create a new chat session, optionally linked to a paper
+    Create a new chat session
     """
-    # Validate paper ID if provided
-    if paper_id:
-        paper = await db_service.get_paper_by_id(paper_id)
-        if not paper:
-            raise HTTPException(status_code=404, detail=f"Paper with ID {paper_id} not found")
     
     # Create chat session
-    chat_id = chat_service.create_chat_session(paper_id)
+    chat_id = chat_service.create_chat_session()
     
     return ChatSessionResponse(
         chat_id=chat_id,
-        paper_id=paper_id,
         created_at=datetime.now()
     )
 
@@ -264,19 +255,10 @@ async def delete_file(
         if "files" in chat_data:
             for idx, file_data in enumerate(chat_data["files"]):
                 if file_data.get("id") == file_id:
-                    # Get file path for later deletion
-                    file_path = file_data["file_path"]
                     file_name = file_data.get("filename", "document.pdf")
                     
                     # Remove from the session's files list
                     chat_service.active_chats[chat_id]["files"].pop(idx)
-                    
-                    # Delete the file if it exists
-                    if os.path.exists(file_path):
-                        try:
-                            os.remove(file_path)
-                        except Exception as e:
-                            logger.error(f"Error deleting file {file_path}: {str(e)}")
                     
                     return {"message": f"File {file_name} deleted successfully"}
     
@@ -311,19 +293,61 @@ async def attach_paper_to_chat(
         )
     
     try:
-        # Process paper PDF
-        success = await chat_service.process_paper(chat_id, request.paper_id)
+        success = await chat_service.get_paper_pdf(chat_id, request.paper_id)
         
         if not success:
             raise HTTPException(
                 status_code=422, 
-                detail=f"Failed to process paper {request.paper_id}. The PDF might not be available or there could be an issue with the processing."
+                detail=f"Failed to get PDF for paper {request.paper_id}. The PDF might not be available."
             )
         
         return {"success": True, "message": f"Paper {request.paper_id} successfully attached to chat session"}
     
     except Exception as e:
         logger.error(f"Error attaching paper {request.paper_id} to chat session {chat_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+# Process paper embeddings
+@router.post("/sessions/{chat_id}/process_embeddings")
+async def process_paper_embeddings(
+    chat_id: str = Path(..., description="Chat session ID"),
+    request: AttachPaperRequest = Body(..., description="Request with paper ID to process")
+):
+    """
+    Process embeddings for a paper that has already been attached to the chat session
+    """
+    # Check if chat session exists
+    if chat_id not in chat_service.active_chats:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session {chat_id} not found"
+        )
+    
+    # Validate paper exists in database
+    paper = await db_service.get_paper_by_id(request.paper_id)
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Paper with ID {request.paper_id} not found"
+        )
+    
+    try:
+        # 只处理向量化
+        success = await chat_service.process_paper_embeddings(chat_id, request.paper_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=422, 
+                detail=f"Failed to process embeddings for paper {request.paper_id}."
+            )
+        
+        return {"success": True, "message": f"Successfully processed embeddings for paper {request.paper_id}"}
+    
+    except Exception as e:
+        logger.error(f"Error processing embeddings for paper {request.paper_id} in chat session {chat_id}: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred: {str(e)}"

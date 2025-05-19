@@ -7,7 +7,6 @@ import json
 from app.models.paper import Paper, PaperResponse
 from app.services.db_service import db_service
 from app.services.arxiv_service import ArxivService
-from app.services.recommendation_service import recommendation_service
 
 logger = logging.getLogger(__name__)
 
@@ -55,27 +54,4 @@ async def get_paper(paper_id: str):
         updated_at=paper.updated_date
     )
     
-    return response
-
-@router.get("/recommend/")
-async def get_recommended_papers(
-    limit: int = Query(30, description="Number of recommended papers"),
-    offset: int = Query(0, description="Recommended papers offset"),
-    x_user_id: Optional[str] = Header(None, description="User unique identifier")
-):
-    """
-    Get recommended papers based on user profile, or provide random papers from popular categories for new users
-    """
-    recommended_papers = []
-    
-    if x_user_id:
-        # Try to get personalized recommendations
-        recommended_papers = await recommendation_service.recommend_papers(user_id=x_user_id, limit=limit, offset=offset)
-        
-    # If no personalized recommendation results (possibly new user or insufficient history)
-    if not recommended_papers:
-        logger.info(f"User {x_user_id or 'anonymous'} has no personalized recommendations, providing random recommendations from popular categories")
-        popular_categories = ["cs.CV", "cs.AI", "cs.LG", "cs.CL"]  # Define popular categories
-        recommended_papers = await db_service.get_random_papers_by_category(categories=popular_categories, limit=limit, offset=offset)
-        
-    return recommended_papers 
+    return response 

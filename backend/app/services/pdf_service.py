@@ -31,7 +31,7 @@ class PdfService:
         self.upload_dir = self.project_root / "cached_pdfs"
         self.chunk_size = int(os.getenv("PDF_CHUNK_SIZE", "1000"))  # Characters per chunk
         self.chunk_overlap = int(os.getenv("PDF_CHUNK_OVERLAP", "200"))  # Overlap between chunks
-        self.max_tokens_per_chunk = int(os.getenv("PDF_MAX_TOKENS", "4000"))  # Max tokens for each chunk
+        self.max_tokens_per_chunk = int(os.getenv("PDF_MAX_TOKENS", "3000"))  # Max tokens for each chunk
         self.file_expiry_hours = float(os.getenv("PDF_FILE_EXPIRY_HOURS", "0.5"))  # 文件过期时间（小时），默认30分钟
         
         # 文件访问记录，用于跟踪文件最后访问时间 {"file_path": {"last_access": timestamp, "chat_id": "chat_id"}}
@@ -335,143 +335,6 @@ class PdfService:
         logger.info(f"Split text into {len(chunks)} chunks")
         return chunks
     
-    async def create_vector_store(self, file_path: str, chat_id: str) -> bool:
-        """
-        Process a PDF file and create vector embeddings
-        
-        Args:
-            file_path: Path to the PDF file
-            chat_id: Unique identifier for the chat session
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        # 更新文件访问时间和关联的chat_id
-        self._update_file_access(file_path, chat_id)
-        
-        try:
-            # 尝试从文件路径中提取论文ID
-            file_name = os.path.basename(file_path)
-            paper_id_match = re.search(r'(\d{4}\.\d+)', file_name)
-            paper_id = None
-            
-            if paper_id_match:
-                paper_id = paper_id_match.group(1)
-                logger.info(f"Extracted paper ID from filename: {paper_id}")
-            else:
-                # 从chat_service获取paper_id
-                from app.services.chat_service import chat_service
-                if chat_id in chat_service.active_chats and "paper_id" in chat_service.active_chats[chat_id]:
-                    paper_id = chat_service.active_chats[chat_id]["paper_id"]
-                    logger.info(f"Using paper ID from chat session: {paper_id}")
-            
-            # 如果能找到paper_id，先尝试从OSS获取向量嵌入
-            if paper_id:
-                logger.info(f"Attempting to get existing vector embeddings for paper ID: {paper_id} from OSS")
-                chunks, embeddings = await oss_service.get_vector_embeddings(paper_id)
-                
-                if chunks and embeddings:
-                    logger.info(f"Found existing vector embeddings for paper ID: {paper_id}, chunks: {len(chunks)}")
-                    # 将OSS中的向量存储应用到当前会话
-                    self._store_session_vectors(chat_id, chunks, embeddings)
-                    return True
-                else:
-                    logger.info(f"No existing vector embeddings found for paper ID: {paper_id}, will create new ones")
-            
-            # 如果没有找到现有向量，执行常规处理
-            logger.info(f"Processing PDF for vector embeddings: {file_path}")
-            
-            # Extract text from PDF
-            text_content = await self.extract_text_from_pdf(file_path)
-            if not text_content:
-                logger.error(f"Failed to extract text from PDF: {file_path}")
-                return False
-            
-            # Split text into chunks
-            chunks = self.chunk_text(text_content)
-            if not chunks:
-                logger.error(f"No valid chunks created from PDF: {file_path}")
-                return False
-            
-            # 批量处理嵌入，每批最多10个
-            batch_size = 10  # 根据API限制设置批处理大小
-            all_embeddings = []
-            
-            # 分批处理所有文本块
-            for i in range(0, len(chunks), batch_size):
-                batch_chunks = chunks[i:i+batch_size]
-                logger.info(f"Processing batch {i//batch_size + 1}/{(len(chunks) + batch_size - 1)//batch_size}, size: {len(batch_chunks)}")
-                
-                # 获取当前批次的嵌入
-                batch_embeddings = await llm_service.get_embeddings(
-                    texts=batch_chunks,
-                    model=llm_service.default_embedding_model,
-                )
-                
-                if batch_embeddings is None:
-                    logger.error(f"Failed to get embeddings for batch {i//batch_size + 1}")
-                    return False
-                
-                # 累积所有嵌入
-                all_embeddings.extend(batch_embeddings)
-                
-                # 添加短暂延迟，避免API速率限制
-                await asyncio.sleep(0.5)
-            
-            # 确保我们有所有块的嵌入
-            if len(all_embeddings) != len(chunks):
-                logger.error(f"Embedding count mismatch: got {len(all_embeddings)}, expected {len(chunks)}")
-                return False
-            
-            # Store the chunks and embeddings in memory for this session
-            self._store_session_vectors(chat_id, chunks, all_embeddings)
-            
-            # 如果有论文ID，将向量嵌入保存到OSS
-            if paper_id:
-                logger.info(f"Saving vector embeddings for paper ID: {paper_id} to OSS")
-                save_success = await oss_service.save_vector_embeddings(paper_id, chunks, all_embeddings)
-                if save_success:
-                    logger.info(f"Successfully saved vector embeddings for paper ID: {paper_id} to OSS")
-                else:
-                    logger.warning(f"Failed to save vector embeddings for paper ID: {paper_id} to OSS")
-            
-            logger.info(f"Successfully created vector store for chat session: {chat_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error creating vector store for PDF {file_path}: {str(e)}")
-            return False
-    
-    # In-memory storage for session vectors
-    _session_vectors = {}  # Maps chat_id to {"chunks": List[str], "embeddings": List[List[float]]}
-    
-    def _store_session_vectors(self, chat_id: str, chunks: List[str], embeddings: List[List[float]]):
-        """Store vectors for a specific chat session, appending to existing vectors if present"""
-        # 检查该会话是否已有向量存储
-        if chat_id in self._session_vectors:
-            # 获取现有的数据
-            existing_data = self._session_vectors[chat_id]
-            existing_chunks = existing_data["chunks"]
-            existing_embeddings = existing_data["embeddings"]
-            
-            # 追加新的数据
-            self._session_vectors[chat_id] = {
-                "chunks": existing_chunks + chunks,
-                "embeddings": existing_embeddings + embeddings
-            }
-            logger.info(f"Appended {len(chunks)} new chunks to existing vector store for chat session: {chat_id}")
-        else:
-            # 如果不存在，创建新的向量存储
-            self._session_vectors[chat_id] = {
-                "chunks": chunks, 
-                "embeddings": embeddings
-            }
-            logger.info(f"Created new vector store with {len(chunks)} chunks for chat session: {chat_id}")
-    
-    def get_session_vectors(self, chat_id: str) -> Optional[Dict[str, Any]]:
-        """Get vectors for a specific chat session"""
-        return self._session_vectors.get(chat_id)
-    
     async def delete_uploaded_file(self, file_path: str) -> bool:
         """
         Delete an uploaded PDF file from disk
@@ -497,70 +360,6 @@ class PdfService:
         except Exception as e:
             logger.error(f"Error deleting PDF file {file_path}: {str(e)}")
             return False
-    
-    def cleanup_session(self, chat_id: str):
-        """Clean up session data when chat is done"""
-        if chat_id in self._session_vectors:
-            del self._session_vectors[chat_id]
-            logger.info(f"Cleaned up vector store for chat session: {chat_id}")
-    
-    async def query_similar_chunks(self, chat_id: str, query: str, top_k: int = 3) -> List[str]:
-        """
-        Retrieve chunks most similar to the query
-        
-        Args:
-            chat_id: Chat session ID
-            query: Query text
-            top_k: Number of chunks to retrieve
-            
-        Returns:
-            List of relevant text chunks
-        """
-        session_data = self.get_session_vectors(chat_id)
-        if not session_data:
-            logger.error(f"No vector store found for chat session: {chat_id}")
-            return []
-        
-        chunks = session_data["chunks"]
-        stored_embeddings = session_data["embeddings"]
-        
-        # Get query embedding
-        query_embedding_list = await llm_service.get_embeddings(
-            texts=[query],
-            model=llm_service.default_embedding_model,
-        )
-        
-        if not query_embedding_list:
-            logger.error(f"Failed to get embedding for query: {query}")
-            return []
-        
-        query_embedding = query_embedding_list[0]
-        
-        # Calculate cosine similarity with each chunk
-        similarities = []
-        for i, emb in enumerate(stored_embeddings):
-            # Convert to numpy arrays for vector operations
-            emb_array = np.array(emb)
-            query_array = np.array(query_embedding)
-            
-            # Calculate cosine similarity
-            dot_product = np.dot(emb_array, query_array)
-            emb_norm = np.linalg.norm(emb_array)
-            query_norm = np.linalg.norm(query_array)
-            similarity = dot_product / (emb_norm * query_norm)
-            
-            similarities.append((i, similarity))
-        
-        # Sort by similarity (descending)
-        similarities.sort(key=lambda x: x[1], reverse=True)
-        
-        # Get top-k chunks
-        top_chunks = []
-        for idx, _ in similarities[:top_k]:
-            top_chunks.append(chunks[idx])
-        
-        logger.info(f"Retrieved {len(top_chunks)} relevant chunks for query in chat session: {chat_id}")
-        return top_chunks
     
     async def save_uploaded_pdf(self, file_content: bytes, filename: str) -> str:
         """
@@ -687,6 +486,72 @@ class PdfService:
         except Exception as e:
             logger.error(f"Error updating chat files for session {chat_id}: {str(e)}")
             return {"success": False, "error": str(e)}
+
+    async def query_similar_chunks(self, chat_id: str, query: str, top_k: int = 3) -> List[str]:
+        """
+        Retrieve chunks most similar to the query, supporting multiple uploaded files.
+        """
+        from app.services.chat_service import chat_service
+        session = chat_service.active_chats.get(chat_id)
+        if not session:
+            logger.error(f"No session found for chat_id: {chat_id}")
+            return []
+        files = session.get("files", [])
+        if not files:
+            logger.error(f"No files found in session for chat_id: {chat_id}")
+            return []
+        import re
+        from pathlib import Path
+        import json
+        all_chunks = []
+        all_embeddings = []
+        for file_info in files:
+            paper_id = file_info.get("paper_id")
+            if not paper_id:
+                continue
+            match = re.match(r'^(\d{2})(\d{2})\.(\d+)', paper_id)
+            if not match:
+                logger.warning(f"Invalid paper_id format: {paper_id}")
+                continue
+            year, month, _ = match.groups()
+            local_path = Path("cached_embeddings") / year / month / f"{paper_id.replace('.', '_')}.json"
+            if not local_path.exists():
+                logger.warning(f"Embedding file not found: {local_path}")
+                continue
+            with open(local_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            chunks = data.get("chunks", [])
+            embeddings = data.get("embeddings", [])
+            if not chunks or not embeddings or len(chunks) != len(embeddings):
+                logger.warning(f"Invalid embedding data in {local_path}")
+                continue
+            all_chunks.extend(chunks)
+            all_embeddings.extend(embeddings)
+        if not all_chunks or not all_embeddings:
+            logger.error(f"No valid embeddings found for any file in session {chat_id}")
+            return []
+        # 计算 query embedding
+        query_embedding_list = await llm_service.get_embeddings(
+            texts=[query],
+            model=llm_service.default_embedding_model,
+        )
+        if not query_embedding_list:
+            logger.error(f"Failed to get embedding for query: {query}")
+            return []
+        query_embedding = query_embedding_list[0]
+        similarities = []
+        for i, emb in enumerate(all_embeddings):
+            emb_array = np.array(emb)
+            query_array = np.array(query_embedding)
+            dot_product = np.dot(emb_array, query_array)
+            emb_norm = np.linalg.norm(emb_array)
+            query_norm = np.linalg.norm(query_array)
+            similarity = dot_product / (emb_norm * query_norm)
+            similarities.append((i, similarity))
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        top_chunks = [all_chunks[idx] for idx, _ in similarities[:top_k]]
+        logger.info(f"Retrieved {len(top_chunks)} relevant chunks for query in chat session: {chat_id} (from {len(files)} files)")
+        return top_chunks
 
 # Instantiate a singleton
 pdf_service = PdfService() 

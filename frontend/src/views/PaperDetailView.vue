@@ -43,9 +43,7 @@
           <a :href="paper.pdf_url" target="_blank" class="action-button">
             Open PDF
           </a>
-          <button @click="startChatWithPaper" class="action-button">
-            Chat
-          </button>
+          <ChatButton :paper-id="paper.paper_id" />
           <button @click="goBack" class="action-button">
             Back
           </button>
@@ -79,11 +77,15 @@ import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
 import { getCategoryLabel } from '../types/paper'
-import { chatSessionStore } from '../stores/chatSession'
+import ChatButton from '../components/ChatButton.vue'
 import { useToast } from 'vue-toastification'
 
 export default defineComponent({
   name: 'PaperDetailView',
+  
+  components: {
+    ChatButton
+  },
   
   setup() {
     const route = useRoute();
@@ -110,17 +112,17 @@ export default defineComponent({
       }
     });
     
-    // 切换PDF查看器
+    // Toggle PDF viewer
     const togglePdfViewer = () => {
       showPdf.value = !showPdf.value;
     };
     
-    // 关闭PDF查看器
+    // Close PDF viewer
     const closePdf = () => {
       showPdf.value = false;
     };
     
-    // 返回上一页
+    // Go back
     const goBack = () => {
       if (document.referrer.includes(window.location.host)) {
         const referrer = new URL(document.referrer).pathname;
@@ -129,58 +131,7 @@ export default defineComponent({
       router.go(-1);
     };
     
-    // 开始与论文聊天
-    const startChatWithPaper = async () => {
-      // 确保我们有论文信息
-      if (!paper.value) {
-        toast.error('Paper information is not available, please try again');
-        return;
-      }
-
-      try {
-        // 确保有活跃的聊天会话
-        if (!chatSessionStore.hasActiveSession()) {
-          await chatSessionStore.createChatSession();
-        }
-        
-        const chatId = chatSessionStore.getChatId();
-        
-        // 存储论文 ID 到会话中，以便在聊天页面中使用
-        chatSessionStore.setPendingPaperId(paper.value.paper_id);
-        
-        // 显示消息
-        toast.info(`Redirecting to chat page, paper will be processed in the background...`);
-        
-        // 直接跳转到聊天页面，不等待论文处理
-        router.push({ name: 'chat', params: { id: chatId } });
-        
-        // 在后台发起论文关联请求，不阻塞用户流程
-        setTimeout(async () => {
-          try {
-            await api.associatePaperWithChat(paper.value.paper_id, chatId);
-            console.log(`Successfully associated paper ${paper.value.paper_id} with chat ${chatId} in background`);
-          } catch (error) {
-            console.error('Error associating paper with chat in background:', error);
-          }
-        }, 100);
-        
-      } catch (error) {
-        console.error('Error starting chat with paper:', error);
-        toast.error('Failed to create chat session, please try again');
-        
-        // 出错时也尝试跳转到聊天页面
-        if (chatSessionStore.hasActiveSession()) {
-          router.push({ 
-            name: 'chat',
-            params: { id: chatSessionStore.getChatId() } 
-          });
-        } else {
-          router.push({ name: 'chat' });
-        }
-      }
-    };
-    
-    // 获取论文详情
+    // Get paper details
     onMounted(async () => {
       const paperId = route.params.id;
       
@@ -215,8 +166,7 @@ export default defineComponent({
       togglePdfViewer,
       goBack,
       getCategoryLabel,
-      closePdf,
-      startChatWithPaper
+      closePdf
     };
   }
 })

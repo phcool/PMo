@@ -11,7 +11,7 @@
               <h2>AI Chat</h2>
               <div class="header-actions">
                 <button 
-                  @click="toggleFilesList" 
+                  @click="showFilesList = !showFilesList" 
                   class="file-list-toggle"
                   :class="{ 'active': showFilesList }"
                   :title="showFilesList ? 'Hide files' : 'Show files'"
@@ -19,31 +19,11 @@
                   <svg class="icon-svg" viewBox="0 0 24 24">
                     <path d="M14,2H6C4.9,2 4,2.9 4,4V20C4,21.1 4.9,22 6,22H18C19.1,22 20,21.1 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
                   </svg>
-                  <span v-if="pdfFiles.length > 0" class="file-count">{{ pdfFiles.length }}</span>
                 </button>
               </div>
             </div>
           </div>
-          
-          <!-- 在聊天输入区域上方添加论文处理状态提示 -->
-          <div v-if="isPaperProcessing" class="paper-processing-alert">
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-loader" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-              <path d="M12 6l0 -3"></path>
-              <path d="M16.25 7.75l2.15 -2.15"></path>
-              <path d="M18 12l3 0"></path>
-              <path d="M16.25 16.25l2.15 2.15"></path>
-              <path d="M12 18l0 3"></path>
-              <path d="M7.75 16.25l-2.15 2.15"></path>
-              <path d="M6 12l-3 0"></path>
-              <path d="M7.75 7.75l-2.15 -2.15"></path>
-            </svg>
-            <div class="processing-content">
-              <span class="processing-title">Processing paper, please wait...</span>
-              <span class="processing-hint">Processing large papers may take some time. Please wait for processing to complete before sending a message.</span>
-            </div>
-          </div>
-          
+
           <div class="chat-container">
             <div class="chat-messages" ref="messagesContainer">
               <div v-for="message in messages" :key="message.id" 
@@ -74,9 +54,6 @@
                   :disabled="false"
                   class="chat-input"
                 ></textarea>
-                <div class="input-actions">
-                  <!-- 删除搜索按钮 -->
-                </div>
               </div>
               <button 
                 @click="sendMessage" 
@@ -84,7 +61,6 @@
                 class="chat-send-button"
               >
                 <span v-if="isLoading">⏳</span>
-                <span v-else-if="isProcessingFile">⌛</span>
                 <span v-else-if="isPaperProcessing">⌛</span>
                 <span v-else>Send</span>
               </button>
@@ -93,79 +69,14 @@
         </div>
       </div>
       
-      <!-- Files Sidebar -->
-      <div class="files-sidebar" :class="{ 
-        'hidden': !showFilesList, 
-        'active': showFilesList,
-        'pdf-active': showPdf && currentPdfUrl
-      }">
-        <div v-if="currentPdfUrl && showPdf" class="pdf-view">
-          <div class="pdf-header">
-            <h3 class="pdf-title" :title="currentFileName">{{ currentFileName }}</h3>
-            <div class="pdf-controls">
-              <a :href="currentPdfUrl" target="_blank" class="pdf-control-btn" title="Open in new window">
-                <svg class="icon-svg" viewBox="0 0 24 24">
-                  <path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
-                </svg>
-              </a>
-              <button class="close-pdf-btn" @click="closePdf">
-                <svg class="icon-svg" viewBox="0 0 24 24">
-                  <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-          <div class="pdf-loading" v-if="isPdfLoading">
-            <div class="loader"></div>
-            <div>Loading PDF...</div>
-          </div>
-          <embed 
-            :src="currentPdfUrl" 
-            type="application/pdf"
-            class="pdf-iframe" 
-            @load="isPdfLoading = false"
-            :style="{ opacity: isPdfLoading ? 0 : 1 }"
-          >
-        </div>
-        
-        <div v-if="!showPdf || !currentPdfUrl" class="pdf-files-panel">
-          <div class="panel-header">
-            <h3>File List</h3>
-            <button class="close-btn" @click="toggleFilesList">×</button>
-          </div>
-          
-          <div class="pdf-files-list">
-            <div 
-              v-for="file in pdfFiles" 
-              :key="file.id"
-              :class="['pdf-file-item', { active: file.id === selectedFileId }]"
-              @click.stop="handleSelectFile(file)"
-            >
-              <div class="pdf-file-icon">
-                <svg class="icon-svg" viewBox="0 0 24 24">
-                  <path d="M14,2H6C4.9,2 4,2.9 4,4V20C4,21.1 4.9,22 6,22H18C19.1,22 20,21.1 20,20V8L14,2M18,20H6V4H13V9H18V20M10,19L10.9,19C11.2,19 11.3,18.9 11.4,18.7L12.2,17.1L14.3,18.9L15,18.4L12.8,16.6L13.9,15C14.1,14.8 14.2,14.5 14,14.2C13.8,14 13.4,13.9 13,14.1L11.4,15L10.5,12.2L10,12.3L10.6,15.4L9.7,16L9.2,16.5L10,19M13.3,14.7C13.5,14.6 13.6,14.8 13.4,14.9L12,15.8L13.3,14.7M10.8,15.9L11.5,17.2L11.1,16.2L10.8,15.9M11.7,16.3L12.3,15.6L12.3,15.7L11.7,16.3Z" />
-                </svg>
-              </div>
-              <div class="pdf-file-info">
-                <div class="pdf-file-name">{{ file.name }}</div>
-                <div class="pdf-file-size">{{ formatFileSize(file.size) }}</div>
-              </div>
-              <button 
-                class="pdf-file-delete" 
-                @click.stop="deleteFile(file)" 
-                title="Delete file"
-              >
-                <svg class="icon-svg" viewBox="0 0 24 24">
-                  <path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" />
-                </svg>
-              </button>
-            </div>
-            <div v-if="pdfFiles.length === 0" class="text-center p-4 text-gray-500">
-              No files available in this session.
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- File List Component -->
+      <FileList
+        :chat-id="chatId"
+        v-model:show-files-list="showFilesList"
+        @file-selected="handleFileSelected"
+        @pdf-closed="handlePdfClosed"
+        @files-updated="handleFilesUpdated"
+      />
     </div>
   </div>
 </template>
@@ -180,6 +91,7 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
 import { chatSessionStore } from '../stores/chatSession';
+import FileList from '../components/FileList.vue';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -200,18 +112,73 @@ const inputField = ref(null);
 const error = ref(null);
 
 // PDF file management
-const pdfFiles = ref([]);
 const showFilesList = ref(false);
 const showPdf = ref(false);
 const currentPdfUrl = ref(null);
-const selectedFileId = ref(null);
-const isProcessingFile = ref(false);
-const processingFileName = ref('');
-const isPdfLoading = ref(false); // PDF loading status
-const currentFileName = ref('Document'); // Current PDF filename
 
 // 检查是否正在处理论文
 const isPaperProcessing = ref(false);
+
+// 监听全局会话状态
+watch(() => chatSessionStore.state.chatId, (newChatId) => {
+  if (newChatId && newChatId !== chatId.value) {
+    chatId.value = newChatId;
+    
+    // 如果路由参数中的ID与全局ID不匹配，更新路由
+    if (route.params.id !== newChatId) {
+      router.push({ name: 'chat', params: { id: newChatId } });
+    }
+  }
+});
+
+// 组件卸载前保留会话
+onBeforeUnmount(() => {
+  // 不再结束聊天会话，而是将其保留在全局状态中
+  console.log('Chat component unmounting, keeping global session:', chatId.value);
+});
+
+// 处理文件选择事件
+const handleFileSelected = (file) => {
+  console.log('File selected:', file);
+  showPdf.value = true;
+  currentPdfUrl.value = `${API_BASE_URL}/api/chat/files/${file.id}/view?no_download=true&t=${Date.now()}`;
+};
+
+// 处理 PDF 关闭事件
+const handlePdfClosed = () => {
+  console.log('PDF viewer closed');
+  showPdf.value = false;
+  currentPdfUrl.value = null;
+};
+
+// 处理文件列表更新事件
+const handleFilesUpdated = (files) => {
+  console.log('Files updated:', files);
+  // 如果有待处理的论文ID，检查是否在文件列表中
+  const pendingPaperId = chatSessionStore.getPendingPaperId();
+  if (pendingPaperId && files.length > 0) {
+    const matchingFile = files.find(file => 
+      file.name.includes(pendingPaperId) || 
+      (file.paper_id && file.paper_id === pendingPaperId)
+    );
+    
+    if (matchingFile) {
+      // 自动选中并显示文件
+      showFilesList.value = true;
+      handleFileSelected(matchingFile);
+    }
+  }
+};
+
+// 监听论文处理状态变化
+watch(() => chatSessionStore.state.processingPaper, (isProcessing) => {
+  isPaperProcessing.value = isProcessing;
+});
+
+// 检查是否正在处理文件
+const isProcessingFile = ref(false);
+
+// 输入框占位符
 const inputPlaceholder = computed(() => {
   if (isPaperProcessing.value) {
     return 'Paper is being processed, please wait...';
@@ -246,7 +213,6 @@ onMounted(async () => {
     
     // 加载会话消息和文件
     await loadChatSession();
-    await loadSessionFiles();
     
     initialLoading.value = false;
   } catch (err) {
@@ -274,57 +240,6 @@ onMounted(async () => {
       return hljs.highlightAuto(code).value;
     }
   });
-
-  // 如果有待处理的论文ID，设置处理状态
-  if (chatSessionStore.getPendingPaperId()) {
-    isPaperProcessing.value = true;
-    
-    // 首先立即执行一次检查
-    checkPaperProcessingStatus();
-    
-    // 每3秒检查一次论文处理状态，以更快响应处理完成
-    const checkInterval = setInterval(() => {
-      checkPaperProcessingStatus();
-      
-      // 如果处理完成或没有待处理的论文，清除定时器
-      if (!isPaperProcessing.value || !chatSessionStore.getPendingPaperId()) {
-        clearInterval(checkInterval);
-        console.log('Paper processing check completed, clearing interval');
-      }
-    }, 3000);
-    
-    // 设置一个超时，如果30秒后仍在处理，也强制取消处理状态
-    setTimeout(async () => {
-      if (isPaperProcessing.value) {
-        console.log('Force clearing paper processing status after timeout');
-        
-        // 即使超时也刷新一次文件列表
-        await loadSessionFiles();
-        
-        // 解除处理状态
-        isPaperProcessing.value = false;
-        chatSessionStore.setProcessingPaper(false);
-        
-        // 自动选中并显示文件，如果有的话
-        if (pdfFiles.value && pdfFiles.value.length > 0) {
-          // 尝试找到与pendingPaperId匹配的文件
-          const pendingPaperId = chatSessionStore.getPendingPaperId();
-          const matchingFile = pdfFiles.value.find(file => 
-            file.name.includes(pendingPaperId) || 
-            (file.paper_id && file.paper_id === pendingPaperId)
-          );
-          
-          const fileToShow = matchingFile || pdfFiles.value[pdfFiles.value.length - 1];
-          
-          // 显示文件列表和选中的文件
-          showFilesList.value = true;
-          handleSelectFile(fileToShow);
-        }
-        
-        toast.info('Paper processing complete, you can start chatting now');
-      }
-    }, 30000); // 30秒超时
-  }
 });
 
 // Create new chat session
@@ -376,19 +291,6 @@ async function loadChatSession() {
     // Don't set global error, just show toast message
   } finally {
     isLoading.value = false;
-  }
-}
-
-// Load session-related files
-async function loadSessionFiles() {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/files`);
-    pdfFiles.value = response.data;
-    console.log('Loaded files:', pdfFiles.value.length);
-  } catch (error) {
-    console.error('Failed to load files:', error);
-    toast.error('Failed to load file list');
-    // Don't set global error, just show toast message
   }
 }
 
@@ -556,64 +458,6 @@ function updateMessageDisplay(messageEl, content) {
   scrollToBottom();
 }
 
-// Select PDF file
-function handleSelectFile(file) {
-  selectedFileId.value = file.id;
-  isPdfLoading.value = true; // Start loading PDF
-  currentFileName.value = file.name; // Set current filename
-  
-  // Ensure URL includes no_download=true parameter and add random parameter to avoid browser caching
-  const timestamp = Date.now();
-  currentPdfUrl.value = `${API_BASE_URL}/api/chat/files/${file.id}/view?no_download=true&t=${timestamp}`;
-  showPdf.value = true;
-  
-  // If on mobile device, automatically close file list, only show PDF
-  if (window.innerWidth <= 768) {
-    showFilesList.value = false;
-  }
-}
-
-// Delete file
-async function deleteFile(file) {
-  if (!confirm(`Are you sure you want to delete the file ${file.name}?`)) return;
-  
-  try {
-    await axios.delete(`${API_BASE_URL}/api/chat/files/${file.id}`);
-    
-    // Remove from list
-    pdfFiles.value = pdfFiles.value.filter(f => f.id !== file.id);
-    
-    // If currently displayed file is deleted, close preview
-    if (selectedFileId.value === file.id) {
-      closePdf();
-    }
-    
-    toast.success(`File ${file.name} deleted successfully`);
-  } catch (error) {
-    console.error('Failed to delete file:', error);
-    toast.error('Failed to delete file. Please try again.');
-  }
-}
-
-// Toggle file list display
-function toggleFilesList() {
-  showFilesList.value = !showFilesList.value;
-  
-  // If file list is closed, also close PDF viewer
-  if (!showFilesList.value) {
-    closePdf();
-  }
-}
-
-// Close PDF viewer
-function closePdf() {
-  currentPdfUrl.value = null;
-  selectedFileId.value = null;
-  showPdf.value = false;
-  isPdfLoading.value = false;
-  currentFileName.value = 'Document';
-}
-
 // Modify formatMessage function, simplify processing to avoid complex caching
 function formatMessage(content) {
   if (!content) return '';
@@ -666,82 +510,6 @@ watch(
 onBeforeUnmount(() => {
   document.body.classList.remove('pdf-active-page');
 });
-
-// 监控后台论文处理状态
-const checkPaperProcessingStatus = async () => {
-  if (!chatId.value || !isPaperProcessing.value) return;
-  
-  try {
-    // 直接从处理状态API获取更准确的状态信息
-    const processingResponse = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/processing-status`);
-    const pendingPaperId = chatSessionStore.getPendingPaperId();
-    
-    // 只有当API明确返回processing=false时才更新状态
-    if (processingResponse.data && processingResponse.data.processing === false) {
-      // 标记处理已完成
-      console.log('Processing reported complete by API');
-      
-      // 先刷新文件列表，确保能获取到最新的文件
-      await loadSessionFiles();
-      
-      // 验证文件列表中确实有文件
-      if (pdfFiles.value && pdfFiles.value.length > 0) {
-        console.log('Processing complete and files are available');
-        
-        // 在确认有文件且API报告处理完成后才更新状态
-        isPaperProcessing.value = false;
-        chatSessionStore.setProcessingPaper(false);
-        chatSessionStore.clearPendingPaperId();
-        
-        // 显示成功消息
-        toast.success('Paper processing complete, you can start chatting now');
-        
-        // 自动选中并打开最新处理的文件
-        const lastProcessedFile = pdfFiles.value[pdfFiles.value.length - 1];
-        if (lastProcessedFile) {
-          // 稍微延迟执行，确保UI已经更新
-          setTimeout(() => {
-            console.log('Auto-selecting the last processed file:', lastProcessedFile.name);
-            handleSelectFile(lastProcessedFile);
-            
-            // 确保文件列表是可见的
-            if (!showFilesList.value) {
-              showFilesList.value = true;
-            }
-          }, 500);
-        }
-      } else {
-        console.log('Processing reported complete but no files found yet, continuing to wait');
-        
-        // 再次尝试加载文件列表
-        setTimeout(() => loadSessionFiles(), 1000);
-      }
-    } else if (processingResponse.data) {
-      console.log(`Paper processing status: processing=${processingResponse.data.processing}`, 
-                processingResponse.data.file_name ? `file=${processingResponse.data.file_name}` : '');
-    }
-  } catch (error) {
-    console.error('Error checking paper processing status:', error);
-  }
-};
-
-// 监听全局会话状态
-watch(() => chatSessionStore.state.chatId, (newChatId) => {
-  if (newChatId && newChatId !== chatId.value) {
-    chatId.value = newChatId;
-    
-    // 如果路由参数中的ID与全局ID不匹配，更新路由
-    if (route.params.id !== newChatId) {
-      router.push({ name: 'chat', params: { id: newChatId } });
-    }
-  }
-});
-
-// 组件卸载前保留会话
-onBeforeUnmount(() => {
-  // 不再结束聊天会话，而是将其保留在全局状态中
-  console.log('Chat component unmounting, keeping global session:', chatId.value);
-});
 </script>
 
 <style scoped>
@@ -783,43 +551,6 @@ onBeforeUnmount(() => {
   color: #d32f2f;
 }
 
-.action-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #757575;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s;
-  flex-shrink: 0;
-  padding: 6px;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-}
-
-.action-button:hover {
-  color: #3f51b5;
-}
-
-.action-button.active {
-  color: white;
-  background-color: #3f51b5;
-}
-
-.action-button.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.action-button .icon-svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* 聊天相关样式 */
 .chat-view {
   display: flex;
   flex-direction: column;
@@ -889,21 +620,6 @@ onBeforeUnmount(() => {
 .file-list-toggle.active {
   color: #3f51b5;
   background-color: #e8eaf6;
-}
-
-.file-count {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  background-color: #f44336;
-  color: white;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  font-size: 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .chat-container {
@@ -993,14 +709,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 2px rgba(63, 81, 181, 0.2);
 }
 
-.input-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  margin-left: -6px;
-}
-
 .chat-input {
   width: 100%;
   min-height: 44px;
@@ -1066,543 +774,6 @@ onBeforeUnmount(() => {
   to { transform: rotate(360deg); }
 }
 
-/* 文件列表和PDF查看器样式 */
-.files-sidebar {
-  width: 320px;
-  height: 100%;
-  background-color: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transition: all 0.3s ease;
-  flex-shrink: 0;
-}
-
-.files-sidebar.active {
-  width: 320px;
-}
-
-.files-sidebar.pdf-active {
-  width: 50%;
-  max-width: 800px;
-  min-width: 600px;
-}
-
-.files-sidebar.hidden {
-  width: 0;
-  margin: 0;
-  padding: 0;
-  opacity: 0;
-}
-
-.full-layout.pdf-layout {
-  padding: 8px;
-  display: flex;
-  justify-content: space-between;
-}
-
-.full-layout.pdf-layout .chat-view {
-  flex: 1;
-  min-width: 450px;
-  width: calc(50% - 12px);
-  max-width: calc(100% - 620px);
-}
-
-.pdf-files-panel {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background-color: white;
-  overflow: hidden;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  border-bottom: 1px solid #eee;
-  background-color: #f9f9f9;
-}
-
-.panel-header h3 {
-  margin: 0;
-  font-size: 1.2rem;
-  color: #333;
-  font-weight: 600;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  line-height: 1;
-  cursor: pointer;
-  color: #666;
-}
-
-.close-btn:hover {
-  color: #000;
-}
-
-.pdf-files-list {
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  flex: 1;
-  overflow-y: auto;
-}
-
-.pdf-file-item {
-  display: flex;
-  align-items: center;
-  padding: 0.75rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid #eee;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.pdf-file-item:hover {
-  background-color: #f5f5f5;
-  transform: translateY(-2px);
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
-}
-
-.pdf-file-item.active {
-  background-color: #e3f2fd;
-  border-color: #bbdefb;
-}
-
-.pdf-file-icon {
-  margin-right: 0.75rem;
-  color: #1976d2;
-  flex-shrink: 0;
-}
-
-.pdf-file-info {
-  flex: 1;
-  overflow: hidden;
-  cursor: pointer;
-  min-width: 0;
-}
-
-.pdf-file-delete {
-  background: none;
-  border: none;
-  color: #757575;
-  cursor: pointer;
-  padding: 5px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  opacity: 0.7;
-  flex-shrink: 0;
-}
-
-.pdf-file-delete:hover {
-  background-color: #ffebee;
-  color: #e53935;
-  opacity: 1;
-}
-
-.pdf-file-name {
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 0.25rem;
-  font-weight: 500;
-}
-
-.pdf-file-size {
-  font-size: 0.8rem;
-  color: #777;
-}
-
-/* PDF查看器样式 */
-.pdf-view {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-  background-color: #f5f5f5;
-  display: flex;
-  flex-direction: column;
-  border-radius: 6px;
-}
-
-.pdf-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background-color: #f0f0f0;
-  border-bottom: 1px solid #e0e0e0;
-  z-index: 2;
-}
-
-.pdf-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pdf-title {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: #333;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: calc(100% - 80px);
-}
-
-.pdf-control-btn, .close-pdf-btn {
-  background-color: transparent;
-  border: none;
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.pdf-control-btn:hover, .close-pdf-btn:hover {
-  background-color: rgba(0, 0, 0, 0.1);
-}
-
-.pdf-control-btn .icon-svg, .close-pdf-btn .icon-svg {
-  width: 18px;
-  height: 18px;
-  color: #555;
-}
-
-.pdf-loading {
-  position: absolute;
-  top: 40px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(255, 255, 255, 0.9);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 5;
-  gap: 1rem;
-}
-
-.pdf-loading .loader {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3f51b5;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-.pdf-iframe {
-  width: 100%;
-  height: calc(100% - 40px);
-  border: none;
-  flex: 1;
-  transition: opacity 0.3s ease;
-  background-color: white;
-}
-
-.pdf-fallback {
-  padding: 2rem;
-  text-align: center;
-  background-color: #f5f5f5;
-  border-radius: 8px;
-  margin: 2rem;
-}
-
-.pdf-fallback a {
-  color: #1976d2;
-  text-decoration: underline;
-}
-
-.icon-svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* 响应式布局 */
-@media (min-width: 1400px) {
-  .files-sidebar.pdf-active {
-    width: 45%;
-    max-width: 850px;
-  }
-  
-  .full-layout.pdf-layout .chat-view {
-    width: calc(55% - 12px);
-  }
-}
-
-@media (max-width: 1200px) {
-  .files-sidebar.pdf-active {
-    width: 50%;
-    min-width: 500px;
-  }
-  
-  .full-layout.pdf-layout .chat-view {
-    min-width: 400px;
-    width: calc(50% - 12px);
-  }
-}
-
-@media (max-width: 1024px) {
-  .full-layout {
-    flex-direction: column;
-    padding: 8px;
-  }
-  
-  .full-layout.pdf-layout .chat-view {
-    max-width: 100%;
-    min-width: 100%;
-    width: 100%;
-    margin-bottom: 12px;
-  }
-  
-  .chat-view {
-    margin-right: 0;
-    margin-bottom: 12px;
-  }
-  
-  .files-sidebar {
-    width: 100%;
-    height: 400px;
-    min-width: 0;
-  }
-  
-  .files-sidebar.pdf-active {
-    height: 550px;
-    width: 100%;
-    min-width: 0;
-  }
-  
-  .files-sidebar.hidden {
-    height: 0;
-  }
-}
-
-@media (max-width: 768px) {
-  .chat-page {
-    position: relative;
-    height: auto;
-    min-height: calc(100vh - 60px);
-  }
-  
-  .full-layout {
-    padding: 6px;
-  }
-  
-  .chat-section {
-    padding: 0.75rem;
-  }
-  
-  .files-sidebar {
-    height: 350px;
-  }
-  
-  .chat-send-button {
-    padding: 0.6rem;
-    min-width: 50px;
-  }
-  
-  .chat-header h2 {
-    font-size: 1.2rem;
-  }
-}
-
-/* 论文标签容器样式 */
-.paper-tags-container {
-  margin-bottom: 12px;
-  background-color: #f9f9ff;
-  border-radius: 8px;
-  padding: 8px 12px;
-  border-left: 3px solid #5c6bc0;
-}
-
-/* 搜索加载状态 */
-.paper-search-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px 0;
-  gap: 12px;
-}
-
-.loader-circle {
-  width: 36px;
-  height: 36px;
-  border: 3px solid #e0e0e0;
-  border-top: 3px solid #3f51b5;
-  border-radius: 50%;
-  animation: spin-circle 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-}
-
-.search-message {
-  color: #555;
-  font-size: 14px;
-}
-
-.no-papers-found {
-  padding: 12px;
-  text-align: center;
-  color: #757575;
-  font-style: italic;
-  width: 100%;
-}
-
-@keyframes spin-circle {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* 独立的论文标签容器 */
-.paper-tags-container.standalone {
-  margin: 0 0 12px 0;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-  animation: fadeInDown 0.4s ease-out;
-  transition: all 0.3s ease;
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.paper-tags-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  color: #3949ab;
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.paper-tags-header .icon-svg {
-  width: 18px;
-  height: 18px;
-  fill: #3949ab;
-}
-
-.paper-tags-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.paper-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 50px;
-  background-color: #e8eaf6;
-  color: #3f51b5;
-  text-decoration: none;
-  font-size: 13px;
-  max-width: 100%;
-  transition: all 0.2s ease;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.paper-tag:hover {
-  background-color: #c5cae9;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-  transform: translateY(-1px);
-}
-
-.paper-tag .icon-svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
-  flex-shrink: 0;
-}
-
-.paper-tag-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 移动设备上的响应式样式 */
-@media (max-width: 768px) {
-  .paper-tag {
-    max-width: 100%;
-    margin-bottom: 5px;
-  }
-  
-  .paper-tags-container {
-    padding: 8px;
-  }
-}
-
-.paper-processing-alert {
-  display: flex;
-  align-items: flex-start;
-  background-color: #fff3cd;
-  color: #856404;
-  padding: 10px 12px;
-  border-radius: 4px;
-  margin-bottom: 10px;
-  font-size: 14px;
-  animation: pulse 1.5s infinite;
-}
-
-.paper-processing-alert svg {
-  margin-right: 8px;
-  animation: spin 1s linear infinite;
-  flex-shrink: 0;
-  margin-top: 4px;
-}
-
-.paper-processing-alert .processing-content {
-  display: flex;
-  flex-direction: column;
-}
-
-.paper-processing-alert .processing-title {
-  font-weight: bold;
-  margin-bottom: 4px;
-}
-
-.paper-processing-alert .processing-hint {
-  font-size: 12px;
-  opacity: 0.8;
-}
-
-@keyframes pulse {
-  0% { opacity: 0.8; }
-  50% { opacity: 1; }
-  100% { opacity: 0.8; }
-}
-
 /* 禁用状态的样式 */
 .chat-input:disabled {
   background-color: #f8f9fa;
@@ -1659,7 +830,6 @@ body.pdf-active-page {
   --container-padding: 0 !important;
 }
 
-/* 全局样式：去除主容器限制 */
 body {
   --app-max-width: none !important;
   overflow-x: hidden;

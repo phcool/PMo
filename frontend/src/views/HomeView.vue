@@ -75,31 +75,6 @@
           </button>
         </div>
       </div>
-      
-      <!-- Recommended Papers Based on Search History -->
-      <div v-if="recommendedPapers.length > 0" class="recommended-papers">
-        <h2>Recommendations</h2>
-        
-        <div v-if="isLoadingRecommended" class="loading">
-          Loading recommendations...
-        </div>
-        
-        <div v-else class="papers-list">
-          <PaperCard v-for="paper in recommendedPapers" :key="paper.paper_id" :paper="paper" />
-        </div>
-        
-        <!-- Load More button for Recommended Papers -->
-        <div v-if="recommendedPapers.length > 0" class="section-load-more">
-          <button 
-            v-if="hasMoreRecommended" 
-            @click="loadMoreRecommended" 
-            :disabled="isLoadingMoreRecommended"
-            class="secondary-button"
-          >
-            {{ isLoadingMoreRecommended ? 'Loading...' : 'Load More Recommendations' }}
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -126,14 +101,9 @@ export default defineComponent({
     const paperCount = ref(null);
     const isLoading = ref(false);
     const isLoadingMoreRecent = ref(false);
-    const isLoadingMoreRecommended = ref(false);
     const offset = ref(0);
     const limit = ref(10);
     const hasMorePapers = ref(true);
-    const recommendedPapers = ref([]);
-    const isLoadingRecommended = ref(false);
-    const recommendedOffset = ref(0);
-    const hasMoreRecommended = ref(true);
     const searchQuery = ref('');
     const searchResults = ref([]);
     const isSearching = ref(false);
@@ -148,13 +118,6 @@ export default defineComponent({
       console.log(`Performing search for: "${query}", Triggered by route: ${isRouteTriggered}`);
       
       try {
-        if (!isRouteTriggered) {
-          console.log('Saving search history (direct user action)');
-          await api.saveSearchHistory(query);
-        } else {
-          console.log('Skipping search history save (triggered by route change)');
-        }
-        
         isSearching.value = true;
         searchResults.value = [];
         
@@ -201,29 +164,6 @@ export default defineComponent({
       } catch (error) { console.error('Error loading papers:', error); }
       finally { isLoading.value = false; }
     };
-    
-    // Load recommended papers
-    const loadRecommendedPapers = async () => {
-      try {
-        isLoadingRecommended.value = true;
-        const response = await api.getRecommendedPapers(limit.value);
-        if (Array.isArray(response)) {
-          recommendedPapers.value = response;
-          recommendedOffset.value = response.length;
-          hasMoreRecommended.value = response.length === limit.value;
-        } else {
-          console.warn('Received non-array response for recommended papers:', response);
-          recommendedPapers.value = [];
-          hasMoreRecommended.value = false;
-        }
-      } catch (error) { 
-        console.error('Error loading recommended papers:', error); 
-        recommendedPapers.value = []; 
-        hasMoreRecommended.value = false;
-      } finally { 
-        isLoadingRecommended.value = false; 
-      }
-    };
 
     // Load more recent papers
     const loadMoreRecent = async () => {
@@ -235,27 +175,6 @@ export default defineComponent({
         hasMorePapers.value = morePapers.length === limit.value;
       } catch (error) { console.error('Error loading more recent papers:', error); }
       finally { isLoadingMoreRecent.value = false; }
-    };
-    
-    // Load more recommended papers
-    const loadMoreRecommended = async () => {
-      try {
-        isLoadingMoreRecommended.value = true;
-        const moreRecommendedPapers = await api.getRecommendedPapers(limit.value, recommendedOffset.value);
-        if (Array.isArray(moreRecommendedPapers)) {
-          recommendedPapers.value = [...recommendedPapers.value, ...moreRecommendedPapers];
-          recommendedOffset.value += moreRecommendedPapers.length;
-          hasMoreRecommended.value = moreRecommendedPapers.length === limit.value;
-        } else {
-          console.warn('Received non-array response for recommended papers:', moreRecommendedPapers);
-          hasMoreRecommended.value = false;
-        }
-      } catch (error) { 
-        console.error('Error loading more recommended papers:', error);
-        hasMoreRecommended.value = false; 
-      } finally { 
-        isLoadingMoreRecommended.value = false; 
-      }
     };
 
     // --- Define Lifecycle Hooks and Watchers Last ---
@@ -310,7 +229,6 @@ export default defineComponent({
       } else {
         // Load initial data only if not searching
         loadPapers();
-        loadRecommendedPapers();
       }
       // Restore scroll position on initial mount too, if needed
       // restoreScrollPosition(); 
@@ -320,9 +238,7 @@ export default defineComponent({
     return {
       papers, paperCount, isLoading, 
       isLoadingMoreRecent, loadMoreRecent,
-      isLoadingMoreRecommended, loadMoreRecommended,
       offset, limit, hasMorePapers,
-      recommendedPapers, isLoadingRecommended, hasMoreRecommended,
       searchQuery, searchResults, isSearching, showSearchResults,
       performSearch, resetSearch,
       onActivated, onDeactivated
@@ -352,7 +268,6 @@ export default defineComponent({
   margin-bottom: 2rem;
 }
 
-/* Search container styles */
 .search-container {
   background-color: white;
   border-radius: 8px;
@@ -448,34 +363,17 @@ export default defineComponent({
 }
 
 .papers-container {
-  display: flex;
-  gap: 3rem;
   margin-bottom: 3rem;
-  position: relative;
 }
 
-.papers-container::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background-color: #eee;
-  transform: translateX(-50%);
-}
-
-.recent-papers, .recommended-papers {
-  flex: 1;
+.recent-papers {
   margin-bottom: 2rem;
-  min-width: 0;
-  max-width: calc(50% - 1.5rem);
-  padding-right: 0.5rem;
-  padding-left: 0.5rem;
+  padding: 0 0.5rem;
   box-sizing: border-box;
+  max-width: 100%;
 }
 
-.recent-papers h2, .recommended-papers h2 {
+.recent-papers h2 {
   margin-bottom: 1.5rem;
   color: #333;
   border-bottom: 1px solid #eee;
@@ -508,24 +406,6 @@ export default defineComponent({
   margin-top: 1.5rem;
 }
 
-/* Responsive layout adjustments */
-@media (max-width: 960px) {
-  .papers-container {
-    flex-direction: column;
-  }
-
-  .papers-container::after {
-    display: none;
-  }
-  
-  .recent-papers, .recommended-papers {
-    width: 100%;
-    max-width: 100%;
-    padding: 0;
-  }
-}
-
-/* Search Results Styles */
 .search-results-section {
   margin-bottom: 2rem;
 }
