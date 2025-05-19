@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import type { Paper, SearchRequest, SearchResponse } from '@/types/paper';
+import type { Paper } from '@/types/paper';
 import userService from './user';
 
 /**
@@ -60,13 +60,10 @@ export interface IApiService {
   getPaperById(paperId: string): Promise<Paper>;
   countPapers(): Promise<number>;
   fetchPapers(categories?: string[], maxResults?: number): Promise<{ count: number }>;
-  searchPapers(searchRequest: SearchRequest): Promise<SearchResponse>;
   chatWithPaper(paperId: string, data: { message: string, context_messages?: Array<{role: string, content: string}> }, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   createChatSession(paperId?: string): Promise<ChatSessionResponse>;
   sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   endChatSession(chatId: string): Promise<any>;
-  saveSearchHistory(query: string): Promise<any>;
-  getUserSearchHistory(): Promise<SearchHistoryResponse>;
   getRecommendedPapers(limit?: number, offset?: number): Promise<Paper[]>;
   recordPaperView(paperId: string): Promise<any>;
   getUserPaperViews(limit?: number, days?: number): Promise<PaperViewsResponse>;
@@ -170,21 +167,6 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to fetch papers:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Search papers using vector search
-   * @param searchRequest Search parameters
-   * @returns Promise with search results
-   */
-  async searchPapers(searchRequest: SearchRequest): Promise<SearchResponse> {
-    try {
-      const response = await this.api.post('/api/search', searchRequest);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to search papers:', error);
       throw error;
     }
   }
@@ -338,39 +320,6 @@ class ApiService implements IApiService {
     } catch (error) {
       console.error('Failed to end chat session:', error);
       throw error;
-    }
-  }
-  
-  /**
-   * Save search history
-   * @param query Search query to save
-   * @returns Promise with result
-   */
-  async saveSearchHistory(query: string): Promise<any> {
-    try {
-      const response = await this.api.post('/api/user/search-history', { query });
-      return response.data;
-    } catch (error) {
-      console.error('Failed to save search history:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Get user search history
-   * @returns Promise with search history
-   */
-  async getUserSearchHistory(): Promise<SearchHistoryResponse> {
-    try {
-      const response = await this.api.get('/api/user/search-history');
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get search history:', error);
-      return {
-        user_id: 'anonymous',
-        searches: [],
-        updated_at: null
-      };
     }
   }
   

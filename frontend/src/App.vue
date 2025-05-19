@@ -3,7 +3,6 @@
     <header class="app-header">
       <nav>
         <router-link to="/">Home</router-link>
-        <router-link to="/history">History</router-link>
         <router-link to="/chat">Chat</router-link>
       </nav>
     </header>

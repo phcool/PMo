@@ -133,7 +133,7 @@ export default defineComponent({
     const startChatWithPaper = async () => {
       // 确保我们有论文信息
       if (!paper.value) {
-        toast.error('论文信息不可用，请重试');
+        toast.error('Paper information is not available, please try again');
         return;
       }
 
@@ -149,7 +149,7 @@ export default defineComponent({
         chatSessionStore.setPendingPaperId(paper.value.paper_id);
         
         // 显示消息
-        toast.info(`正在跳转到聊天页面，论文将在后台处理...`);
+        toast.info(`Redirecting to chat page, paper will be processed in the background...`);
         
         // 直接跳转到聊天页面，不等待论文处理
         router.push({ name: 'chat', params: { id: chatId } });
@@ -166,7 +166,7 @@ export default defineComponent({
         
       } catch (error) {
         console.error('Error starting chat with paper:', error);
-        toast.error('无法创建聊天会话，请重试');
+        toast.error('Failed to create chat session, please try again');
         
         // 出错时也尝试跳转到聊天页面
         if (chatSessionStore.hasActiveSession()) {

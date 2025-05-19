@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import UserHistoryView from '../views/UserHistoryView.vue'
 
 // Define routes with proper types
 const routes: Array<RouteRecordRaw> = [
@@ -20,15 +19,6 @@ const routes: Array<RouteRecordRaw> = [
     props: true,
     meta: {
       title: 'Paper Details - DL Paper Monitor',
-      requiresAuth: false
-    }
-  },
-  {
-    path: '/history',
-    name: 'user-history',
-    component: UserHistoryView,
-    meta: {
-      title: 'History - DL Paper Monitor',
       requiresAuth: false
     }
   },

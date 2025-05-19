@@ -25,42 +25,6 @@
             </div>
           </div>
           
-          <!-- Paper tags standalone component -->
-          <div v-if="isSearchingPapers || relatedPapers.length > 0" class="paper-tags-container standalone">
-            <div class="paper-tags-header"> 
-              <svg class="icon-svg" viewBox="0 0 24 24">
-                <path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z" />
-              </svg>
-              <span v-if="isSearchingPapers">Searching for related papers...</span>
-              <span v-else>Related papers found:</span>
-            </div>
-            
-            <!-- Search in progress state -->
-            <div v-if="isSearchingPapers" class="paper-search-loading">
-              <div class="loader-circle"></div>
-              <div class="search-message">Searching, please wait...</div>
-            </div>
-            
-            <!-- Paper tags list -->
-            <div v-else class="paper-tags-list">
-              <a v-for="(paper, index) in relatedPapers" 
-                 :key="index" 
-                 :href="paper.url" 
-                 target="_blank" 
-                 class="paper-tag"
-                 :title="paper.title">
-                <svg class="icon-svg" viewBox="0 0 24 24">
-                  <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
-                </svg>
-                <span class="paper-tag-title">{{ paper.title.length > 70 ? paper.title.substring(0, 70) + '...' : paper.title }}</span>
-              </a>
-              <!-- No papers found message -->
-              <div v-if="relatedPapers.length === 0" class="no-papers-found">
-                No related papers found
-              </div>
-            </div>
-          </div>
-          
           <!-- 在聊天输入区域上方添加论文处理状态提示 -->
           <div v-if="isPaperProcessing" class="paper-processing-alert">
             <svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-loader" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -75,15 +39,8 @@
               <path d="M7.75 7.75l-2.15 -2.15"></path>
             </svg>
             <div class="processing-content">
-              <span class="processing-title">正在处理论文，请稍候...</span>
-              <span class="processing-hint">处理大型论文可能需要一些时间，您可以等待处理完成后发送消息，或者在下方点击"立即尝试发送"按钮绕过处理检查。</span>
-              <button 
-                v-if="hasWaitedLongEnough" 
-                @click="bypassProcessingCheck" 
-                class="bypass-button"
-              >
-                立即尝试发送
-              </button>
+              <span class="processing-title">Processing paper, please wait...</span>
+              <span class="processing-hint">Processing large papers may take some time. Please wait for processing to complete before sending a message.</span>
             </div>
           </div>
           
@@ -106,7 +63,6 @@
             <div class="chat-input-container">
               <div class="chat-input-wrapper" 
                 :class="{ 
-                  'search-mode': isSearchMode,
                   'processing-mode': isLoading || isProcessingFile || isPaperProcessing
                 }"
               >
@@ -119,31 +75,18 @@
                   class="chat-input"
                 ></textarea>
                 <div class="input-actions">
-                  <button 
-                    class="action-button" 
-                    :class="{ 
-                      disabled: isLoading || isProcessingFile || isPaperProcessing,
-                      active: isSearchMode
-                    }"
-                    title="Toggle search mode"
-                    @click="toggleSearchMode"
-                  >
-                    <svg class="icon-svg" viewBox="0 0 24 24">
-                      <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" />
-                    </svg>
-                  </button>
+                  <!-- 删除搜索按钮 -->
                 </div>
               </div>
               <button 
                 @click="sendMessage" 
                 :disabled="isLoading || !userInput.trim() || isProcessingFile || isPaperProcessing"
                 class="chat-send-button"
-                :class="{ 'search-mode': isSearchMode }"
               >
                 <span v-if="isLoading">⏳</span>
                 <span v-else-if="isProcessingFile">⌛</span>
                 <span v-else-if="isPaperProcessing">⌛</span>
-                <span v-else>{{ isSearchMode ? 'Search' : 'Send' }}</span>
+                <span v-else>Send</span>
               </button>
             </div>
           </div>
@@ -256,11 +199,6 @@ const messagesContainer = ref(null);
 const inputField = ref(null);
 const error = ref(null);
 
-// Search related
-const isSearchMode = ref(false); // Whether in search mode
-const isSearchingPapers = ref(false); // Whether searching for papers
-const currentSearchQuery = ref(''); // Current search query
-
 // PDF file management
 const pdfFiles = ref([]);
 const showFilesList = ref(false);
@@ -272,24 +210,17 @@ const processingFileName = ref('');
 const isPdfLoading = ref(false); // PDF loading status
 const currentFileName = ref('Document'); // Current PDF filename
 
-// Related papers status
-const relatedPapers = ref([]);
-const relatedPapersMessageId = ref(null);
-
 // 检查是否正在处理论文
 const isPaperProcessing = ref(false);
 const inputPlaceholder = computed(() => {
   if (isPaperProcessing.value) {
-    return '论文处理中，您可以继续编辑消息，处理完成后将启用发送按钮...';
+    return 'Paper is being processed, please wait...';
   }
   if (isLoading.value) {
-    return 'AI正在回复，您可以继续编辑消息，回复完成后将启用发送按钮...';
+    return 'AI is responding, you can continue editing your message, send button will be enabled after response...';
   }
-  return isSearchMode.value ? 'Search for related papers...' : 'Type your message...';
+  return 'Type your message...';
 });
-
-// 处理状态检查相关
-const hasWaitedLongEnough = ref(false);
 
 // Initialization
 onMounted(async () => {
@@ -362,11 +293,6 @@ onMounted(async () => {
       }
     }, 3000);
     
-    // 设置一个前置超时，允许用户手动绕过处理检查
-    setTimeout(() => {
-      hasWaitedLongEnough.value = true;
-    }, 15000); // 15秒后允许手动绕过
-    
     // 设置一个超时，如果30秒后仍在处理，也强制取消处理状态
     setTimeout(async () => {
       if (isPaperProcessing.value) {
@@ -378,9 +304,6 @@ onMounted(async () => {
         // 解除处理状态
         isPaperProcessing.value = false;
         chatSessionStore.setProcessingPaper(false);
-        
-        // 不清空pendingPaperId，这样即使超时也能保持关联关系
-        // 但不再阻止用户发送消息
         
         // 自动选中并显示文件，如果有的话
         if (pdfFiles.value && pdfFiles.value.length > 0) {
@@ -398,9 +321,9 @@ onMounted(async () => {
           handleSelectFile(fileToShow);
         }
         
-        toast.info('论文已关联到会话，但处理可能需要更长时间。您现在可以发送消息了。');
+        toast.info('Paper processing complete, you can start chatting now');
       }
-    }, 30000); // 增加到30秒，给处理大文件更多时间
+    }, 30000); // 30秒超时
   }
 });
 
@@ -469,32 +392,6 @@ async function loadSessionFiles() {
   }
 }
 
-// Toggle search mode
-function toggleSearchMode() {
-  isSearchMode.value = !isSearchMode.value;
-  
-  // Clear previous search results and status
-  if (isSearchMode.value) {
-    relatedPapers.value = [];
-    isSearchingPapers.value = false;
-    currentSearchQuery.value = '';
-  } else {
-    // When exiting search mode, clear papers if not in response
-    if (!isSearchingPapers.value) {
-      relatedPapers.value = [];
-    }
-  }
-  
-  // Focus input field
-  if (isSearchMode.value) {
-    nextTick(() => {
-      if (inputField.value) {
-        inputField.value.focus();
-      }
-    });
-  }
-}
-
 // Send message or execute search
 async function sendMessage() {
   // 如果输入为空或正在加载中或正在处理文件，直接返回
@@ -502,62 +399,18 @@ async function sendMessage() {
   
   // 再次检查论文处理状态，确保无法在处理时发送
   if (isPaperProcessing.value) {
-    toast.warning('论文正在处理中，请稍候再发送消息');
+    toast.warning('Paper is still being processed, please wait before sending a message');
     return;
   }
   
   const messageContent = userInput.value.trim();
   userInput.value = '';
   
-  // If in search mode, first get relevant papers
-  if (isSearchMode.value) {
-    try {
-      // Save current search query
-      currentSearchQuery.value = messageContent;
-      
-      // Show searching status
-      isSearchingPapers.value = true;
-      
-      // Send search request to get relevant papers
-      const response = await fetch(`${API_BASE_URL}/api/papers/search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query: messageContent }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const searchResults = await response.json();
-      
-      // Update related papers
-      if (searchResults.papers && Array.isArray(searchResults.papers)) {
-        relatedPapers.value = searchResults.papers;
-        console.log(`Found ${relatedPapers.value.length} papers from direct search API`);
-      } else {
-        relatedPapers.value = [];
-      }
-      
-      // Ensure UI updates
-      await nextTick();
-      
-    } catch (error) {
-      console.error('Paper search failed:', error);
-      toast.error('Failed to search for papers');
-      relatedPapers.value = [];
-    } finally {
-      isSearchingPapers.value = false;
-    }
-  }
-  
   // Add user message to UI
   const userMessage = {
     id: Date.now().toString(),
     role: 'user',
-    content: messageContent, // Display original content directly
+    content: messageContent,
     created_at: new Date().toISOString()
   };
   
@@ -583,17 +436,7 @@ async function sendMessage() {
     currentTypingMessageId.value = assistantMessage.id;
     messages.value.push(assistantMessage);
     
-    // Use streaming response to get reply
-    const finalContent = isSearchMode.value 
-      ? `[SEARCH] ${messageContent}` // Add prefix to search mode messages
-      : messageContent;
-      
-    await streamChatResponse(finalContent, assistantMessage);
-    
-    // If in search mode, exit after sending message
-    if (isSearchMode.value) {
-      isSearchMode.value = false;
-    }
+    await streamChatResponse(messageContent, assistantMessage);
   } catch (err) {
     console.error('Failed to send message:', err);
     toast.error('Failed to send message. Please try again.');
@@ -614,11 +457,6 @@ async function sendMessage() {
 // Stream chat response
 async function streamChatResponse(userMessage, assistantMessage) {
   try {
-    // Clear previous search results, but keep papers if already retrieved through direct search
-    if (isSearchMode.value && !isSearchingPapers.value && relatedPapers.value.length === 0) {
-      relatedPapers.value = [];
-    }
-
     // Send request
     const response = await fetch(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/chat`, {
       method: 'POST',
@@ -636,51 +474,16 @@ async function streamChatResponse(userMessage, assistantMessage) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let receivedChunks = 0;
-    let accumulatedData = '';  // Accumulated received data
-    let papersDataFound = false;
-    let shouldSkipPaperData = isSearchMode.value && relatedPapers.value.length > 0; // Skip processing if papers already retrieved
+    let accumulatedData = '';
     
     // Message container reference - for direct DOM manipulation
     const messageEl = document.querySelector(`[data-message-id="${assistantMessage.id}"]`);
     
-    // First data block check, prioritize paper data processing
-    const firstReadResult = await reader.read();
-    if (!firstReadResult.done) {
-      const firstChunk = decoder.decode(firstReadResult.value, { stream: true });
-      accumulatedData += firstChunk;
-      
-      // Immediately check if contains paper data
-      if (accumulatedData.includes('<!-- PAPERS_DATA:') && accumulatedData.includes(' -->') && !shouldSkipPaperData) {
-        try {
-          // Prioritize processing paper data
-          accumulatedData = await processAndRemovePapersData(accumulatedData);
-          papersDataFound = true;
-          
-          // Short delay to ensure UI updates
-          await new Promise(resolve => setTimeout(resolve, 50));
-        } catch (e) {
-          console.error('Error processing papers data in first chunk:', e);
-        }
-      }
-    }
-    
-    // Continue processing the remaining stream
     while (true) {
       const { done, value } = await reader.read();
       
       if (done) {
-        // Final check to ensure no papers_data is missed
-        if (accumulatedData.includes('<!-- PAPERS_DATA:') && accumulatedData.includes(' -->') && !shouldSkipPaperData) {
-          try {
-            await processAndRemovePapersData(accumulatedData);
-            papersDataFound = true;
-          } catch (e) {
-            console.error('Error processing papers data at completion:', e);
-          }
-        }
-        
         isTyping.value = false;
-        // Scroll to bottom
         scrollToBottom();
         break;
       }
@@ -691,17 +494,6 @@ async function streamChatResponse(userMessage, assistantMessage) {
       
       // Add new chunk to accumulated data
       accumulatedData += chunk;
-      
-      // Process papers_data tags
-      if (accumulatedData.includes('<!-- PAPERS_DATA:') && accumulatedData.includes(' -->') && !shouldSkipPaperData) {
-        try {
-          // Process paper data and remove from accumulated data
-          accumulatedData = await processAndRemovePapersData(accumulatedData);
-          papersDataFound = true;
-        } catch (e) {
-          console.error('Error processing papers data:', e);
-        }
-      }
       
       try {
         // Try to parse JSON lines
@@ -729,10 +521,8 @@ async function streamChatResponse(userMessage, assistantMessage) {
         // Update accumulated data, only keeping unparsed parts
         accumulatedData = remainingLines.join('\n');
         
-        // If there's remaining plain text data and doesn't contain papers_data tags, directly add to message
-        if (accumulatedData && 
-            (!accumulatedData.includes('<!-- PAPERS_DATA:') || shouldSkipPaperData) && 
-            !accumulatedData.includes(' -->')) {
+        // If there's remaining plain text data, directly add to message
+        if (accumulatedData) {
           assistantMessage.content += accumulatedData;
           updateMessageDisplay(messageEl, assistantMessage.content);
           accumulatedData = '';
@@ -741,35 +531,11 @@ async function streamChatResponse(userMessage, assistantMessage) {
         console.error('Error processing chunk:', e);
       }
     }
-
-    // If in search mode but no paper data found, reset related papers
-    if (isSearchMode.value && !papersDataFound && !shouldSkipPaperData && relatedPapers.value.length === 0) {
-      relatedPapers.value = [];
-    }
   } catch (error) {
     console.error('Failed to get streaming response:', error);
     assistantMessage.content = "Failed to get response. Please try again.";
-    throw error; // Rethrow error for external function to handle
+    throw error;
   }
-}
-
-// Helper function to process paper data
-async function processAndRemovePapersData(data) {
-  const papersDataMatch = data.match(/<!-- PAPERS_DATA:(.*?) -->/s);
-  if (papersDataMatch && papersDataMatch[1]) {
-    const papersData = JSON.parse(papersDataMatch[1]);
-    if (papersData.type === 'papers_data' && Array.isArray(papersData.papers)) {
-      // Update related papers data, triggers UI update - no longer associated with specific message
-      relatedPapers.value = papersData.papers;
-      console.log(`Found ${papersData.papers.length} papers, displaying as standalone component`);
-      
-      // Force DOM update to ensure paper tags display
-      await nextTick();
-    }
-  }
-  
-  // Remove paper data tag and its content from text
-  return data.replace(/<!-- PAPERS_DATA:.*? -->/s, '');
 }
 
 // Helper function to update message display
@@ -851,14 +617,7 @@ function closePdf() {
 // Modify formatMessage function, simplify processing to avoid complex caching
 function formatMessage(content) {
   if (!content) return '';
-  
-  // Process paper data tags - if any, remove them
-  content = content.replace(/<!-- PAPERS_DATA:.*? -->/sg, '');
-  
-  // Use marked to convert markdown to HTML
   const html = marked(content);
-  
-  // Use DOMPurify to clean HTML
   return DOMPurify.sanitize(html);
 }
 
@@ -935,7 +694,7 @@ const checkPaperProcessingStatus = async () => {
         chatSessionStore.clearPendingPaperId();
         
         // 显示成功消息
-        toast.success('论文处理完成，现在可以开始聊天了');
+        toast.success('Paper processing complete, you can start chatting now');
         
         // 自动选中并打开最新处理的文件
         const lastProcessedFile = pdfFiles.value[pdfFiles.value.length - 1];
@@ -983,33 +742,6 @@ onBeforeUnmount(() => {
   // 不再结束聊天会话，而是将其保留在全局状态中
   console.log('Chat component unmounting, keeping global session:', chatId.value);
 });
-
-// 绕过处理检查
-async function bypassProcessingCheck() {
-  // 先尝试刷新文件列表
-  await loadSessionFiles();
-  
-  // 解除处理状态
-  isPaperProcessing.value = false;
-  chatSessionStore.setProcessingPaper(false);
-  
-  // 如果有文件，自动显示
-  if (pdfFiles.value && pdfFiles.value.length > 0) {
-    const pendingPaperId = chatSessionStore.getPendingPaperId();
-    const matchingFile = pdfFiles.value.find(file => 
-      file.name.includes(pendingPaperId) || 
-      (file.paper_id && file.paper_id === pendingPaperId)
-    );
-    
-    const fileToShow = matchingFile || pdfFiles.value[pdfFiles.value.length - 1];
-    
-    // 显示文件列表和选中的文件
-    showFilesList.value = true;
-    handleSelectFile(fileToShow);
-  }
-  
-  toast.info('已绕过处理检查，您现在可以发送消息了。但论文可能尚未完全处理，回答准确性可能受影响。');
-}
 </script>
 
 <style scoped>
@@ -1298,10 +1030,6 @@ async function bypassProcessingCheck() {
   justify-content: center;
   flex-shrink: 0;
   padding: 0 14px;
-}
-
-.chat-send-button.search-mode {
-  background-color: #1976d2;
 }
 
 .chat-send-button:hover:not(:disabled) {
@@ -1701,12 +1429,6 @@ async function bypassProcessingCheck() {
   }
 }
 
-/* 搜索模式样式 */
-.chat-input-wrapper.search-mode {
-  border-color: #3f51b5;
-  background-color: #f8f9ff;
-}
-
 /* 论文标签容器样式 */
 .paper-tags-container {
   margin-bottom: 12px;
@@ -1873,23 +1595,6 @@ async function bypassProcessingCheck() {
 .paper-processing-alert .processing-hint {
   font-size: 12px;
   opacity: 0.8;
-}
-
-.bypass-button {
-  align-self: flex-start;
-  margin-top: 8px;
-  background-color: #ffc107;
-  color: #212529;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.bypass-button:hover {
-  background-color: #e0a800;
 }
 
 @keyframes pulse {
