@@ -9,7 +9,6 @@ import { defineComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { chatSessionStore } from '../stores/chatSession'
 import { useToast } from 'vue-toastification'
-import api from '../services/api'
 import axios from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
@@ -88,30 +87,11 @@ export default defineComponent({
                 console.error('Failed to process embeddings:', processResponse.data.message);
                 return;
               }
-              
-              // 等待处理状态完成
-              const checkProcessingStatus = async () => {
-                try {
-                  const statusResponse = await axios.get(
-                    `${API_BASE_URL}/api/chat/sessions/${chatId}/processing-status`
-                  );
-                  
-                  if (statusResponse.data.processing) {
-                    // 如果还在处理中，继续等待
-                    setTimeout(checkProcessingStatus, 1000);
-                  } else {
-                    // 处理完成
-                    console.log('Paper embeddings processing completed in background');
-                    chatSessionStore.setProcessingPaper(false);
-                    chatSessionStore.clearPendingPaperId();
-                  }
-                } catch (error) {
-                  console.error('Error checking processing status:', error);
-                }
-              };
-              
-              // 开始检查处理状态
-              checkProcessingStatus();
+
+              console.log('Paper embeddings processing completed in background');
+              chatSessionStore.setProcessingPaper(false);
+              chatSessionStore.clearPendingPaperId();
+
             } catch (error) {
               console.error('Error in background embeddings processing:', error);
             }

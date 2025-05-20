@@ -11,7 +11,7 @@
               <h2>AI Chat</h2>
               <div class="header-actions">
                 <button 
-                  @click="showFilesList = !showFilesList" 
+                  @click="handleFileListToggle" 
                   class="file-list-toggle"
                   :class="{ 'active': showFilesList }"
                   :title="showFilesList ? 'Hide files' : 'Show files'"
@@ -19,6 +19,7 @@
                   <svg class="icon-svg" viewBox="0 0 24 24">
                     <path d="M14,2H6C4.9,2 4,2.9 4,4V20C4,21.1 4.9,22 6,22H18C19.1,22 20,21.1 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
                   </svg>
+                  <span v-if="fileCount > 0" class="file-count">{{ fileCount }}</span>
                 </button>
               </div>
             </div>
@@ -43,7 +44,7 @@
             <div class="chat-input-container">
               <div class="chat-input-wrapper" 
                 :class="{ 
-                  'processing-mode': isLoading || isProcessingFile || isPaperProcessing
+                  'processing-mode': isLoading || isPaperProcessing
                 }"
               >
                 <textarea 
@@ -57,7 +58,7 @@
               </div>
               <button 
                 @click="sendMessage" 
-                :disabled="isLoading || !userInput.trim() || isProcessingFile || isPaperProcessing"
+                :disabled="isLoading || !userInput.trim() || isPaperProcessing"
                 class="chat-send-button"
               >
                 <span v-if="isLoading">⏳</span>
@@ -71,6 +72,7 @@
       
       <!-- File List Component -->
       <FileList
+        ref="fileListRef"
         :chat-id="chatId"
         v-model:show-files-list="showFilesList"
         @file-selected="handleFileSelected"
@@ -175,17 +177,8 @@ watch(() => chatSessionStore.state.processingPaper, (isProcessing) => {
   isPaperProcessing.value = isProcessing;
 });
 
-// 检查是否正在处理文件
-const isProcessingFile = ref(false);
-
 // 输入框占位符
 const inputPlaceholder = computed(() => {
-  if (isPaperProcessing.value) {
-    return 'Paper is being processed, please wait...';
-  }
-  if (isLoading.value) {
-    return 'AI is responding, you can continue editing your message, send button will be enabled after response...';
-  }
   return 'Type your message...';
 });
 
@@ -510,6 +503,17 @@ watch(
 onBeforeUnmount(() => {
   document.body.classList.remove('pdf-active-page');
 });
+
+// 在 setup 里添加方法
+const handleFileListToggle = () => {
+  if (showPdf.value && fileListRef.value && typeof fileListRef.value.closePdf === 'function') {
+    fileListRef.value.closePdf();
+  } else {
+    showFilesList.value = !showFilesList.value;
+  }
+};
+
+const fileListRef = ref(null);
 </script>
 
 <style scoped>

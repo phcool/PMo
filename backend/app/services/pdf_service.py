@@ -15,6 +15,7 @@ import glob
 from datetime import datetime, timedelta
 import aiohttp
 from urllib.parse import quote
+import json
 
 from app.services.vector_search_service import vector_search_service
 from app.services.llm_service import llm_service
@@ -552,6 +553,87 @@ class PdfService:
         top_chunks = [all_chunks[idx] for idx, _ in similarities[:top_k]]
         logger.info(f"Retrieved {len(top_chunks)} relevant chunks for query in chat session: {chat_id} (from {len(files)} files)")
         return top_chunks
+
+    async def generate_embeddings_for_paper(self, paper_id: str, file_path: str) -> Tuple[List[str], List[List[float]], str]:
+        """
+        为论文PDF生成embeddings，并保存到本地和OSS
+        
+        Args:
+            paper_id: 论文ID
+            file_path: PDF文件路径
+            
+        Returns:
+            Tuple[List[str], List[List[float]], str]: (chunks, embeddings, local_path)
+            如果生成失败，返回 ([], [], "")
+        """
+        try:
+            # 1. 解析年份和月份
+            match = re.match(r'^(\d{2})(\d{2})\.(\d+)', paper_id)
+            if not match:
+                logger.error(f"Invalid paper_id format: {paper_id}")
+                return [], [], ""
+                
+            year, month, _ = match.groups()
+            local_dir = Path("cached_embeddings") / year / month
+            local_dir.mkdir(parents=True, exist_ok=True)
+            local_path = local_dir / f"{paper_id.replace('.', '_')}.json"
+            
+            # 2. 从PDF提取文本并分块
+            text_content = await self.extract_text_from_pdf(file_path)
+            if not text_content:
+                logger.error(f"Failed to extract text from PDF for paper_id: {paper_id}")
+                return [], [], ""
+            
+            chunks = self.chunk_text(text_content)
+            if not chunks:
+                logger.error(f"No valid chunks generated from PDF for paper_id: {paper_id}")
+                return [], [], ""
+            
+            # 3. 分批生成embeddings
+            BATCH_SIZE = 10
+            all_embeddings = []
+            
+            for i in range(0, len(chunks), BATCH_SIZE):
+                batch_chunks = chunks[i:i + BATCH_SIZE]
+                logger.info(f"Processing embedding batch {i//BATCH_SIZE + 1}/{(len(chunks)-1)//BATCH_SIZE + 1} for paper {paper_id}")
+                
+                batch_embeddings = await llm_service.get_embeddings(
+                    texts=batch_chunks,
+                    model=llm_service.default_embedding_model
+                )
+                
+                if not batch_embeddings or len(batch_embeddings) != len(batch_chunks):
+                    logger.error(f"Failed to generate embeddings for batch {i//BATCH_SIZE + 1} of paper_id: {paper_id}")
+                    return [], [], ""
+                
+                all_embeddings.extend(batch_embeddings)
+                
+                # 添加小延迟，避免请求过于频繁
+                if i + BATCH_SIZE < len(chunks):
+                    await asyncio.sleep(0.5)
+            
+            if len(all_embeddings) != len(chunks):
+                logger.error(f"Generated embeddings count ({len(all_embeddings)}) doesn't match chunks count ({len(chunks)})")
+                return [], [], ""
+            
+            # 4. 保存到本地
+            with open(local_path, 'w', encoding='utf-8') as f:
+                json.dump({"chunks": chunks, "embeddings": all_embeddings}, f)
+            logger.info(f"Generated and cached embeddings to {local_path}")
+            
+            # 5. 上传到OSS
+            try:
+                await oss_service.upload_vector_embeddings(paper_id, chunks, all_embeddings)
+                logger.info(f"Uploaded embeddings to OSS for paper_id: {paper_id}")
+            except Exception as e:
+                logger.error(f"Failed to upload embeddings to OSS for paper_id {paper_id}: {str(e)}")
+                # 继续执行，因为本地缓存已经成功
+            
+            return chunks, all_embeddings, str(local_path)
+            
+        except Exception as e:
+            logger.error(f"Error generating embeddings for paper {paper_id}: {str(e)}", exc_info=True)
+            return [], [], ""
 
 # Instantiate a singleton
 pdf_service = PdfService() 

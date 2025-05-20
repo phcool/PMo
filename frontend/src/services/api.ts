@@ -17,14 +17,6 @@ interface ChatSessionResponse {
 }
 
 /**
- * Processing status interface
- */
-interface ProcessingStatus {
-  processing: boolean;
-  file_name: string;
-}
-
-/**
  * API Service interface
  */
 export interface IApiService {
@@ -35,7 +27,6 @@ export interface IApiService {
   createChatSession(paperId?: string): Promise<ChatSessionResponse>;
   sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
   endChatSession(chatId: string): Promise<any>;
-  getProcessingStatus(chatId: string): Promise<ProcessingStatus>;
   associatePaperWithChat(paperId: string, chatId: string): Promise<{success: boolean, message: string}>;
   searchPapers(payload: { query: string, limit?: number }): Promise<any>;
 }
@@ -241,21 +232,6 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to end chat session:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Get processing status for a chat session
-   * @param chatId Chat session ID
-   * @returns Promise with processing status
-   */
-  async getProcessingStatus(chatId: string): Promise<ProcessingStatus> {
-    try {
-      const response = await this.api.get(`/api/chat/sessions/${chatId}/status`);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to get processing status:', error);
       throw error;
     }
   }

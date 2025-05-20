@@ -147,7 +147,7 @@ class ChatService:
             return False
 
     async def process_paper_embeddings(self, chat_id: str, paper_id: str) -> bool:
-        """为已加载的PDF创建向量存储，优先本地缓存，再查OSS，OSS拉取后也缓存本地"""
+        """为已加载的PDF创建向量存储，优先本地缓存，再查OSS，OSS拉取后也缓存本地，如果都没有则从PDF生成"""
         if chat_id not in self.active_chats:
             logger.error(f"Chat session not found: {chat_id}")
             return False
@@ -155,7 +155,7 @@ class ChatService:
             filename = f"{paper_id}.pdf"
             self.processing_files[chat_id] = {"processing": True, "file_name": filename}
 
-            # 1. 解析年份和月份
+            # 1. 解析年份和月份，确定本地路径
             match = re.match(r'^(\d{2})(\d{2})\.(\d+)', paper_id)
             if not match:
                 logger.error(f"Invalid paper_id format: {paper_id}")
@@ -173,16 +173,38 @@ class ChatService:
                 # 3. 本地没有则从 OSS 拉取
                 logger.info(f"Local embedding not found, downloading from OSS for paper_id: {paper_id}")
                 chunks, embeddings = await oss_service.get_vector_embeddings(paper_id)
+                
                 if not chunks or not embeddings:
-                    logger.error(f"No embeddings found in OSS for paper_id: {paper_id}")
-                    self.processing_files[chat_id] = {"processing": False, "file_name": filename}
-                    return False
-                # 保存到本地
-                with open(local_path, 'w', encoding='utf-8') as f:
-                    json.dump({"chunks": chunks, "embeddings": embeddings}, f)
-                logger.info(f"Downloaded and cached embedding to {local_path}")
+                    # 4. OSS也没有，需要从PDF生成
+                    logger.info(f"No embeddings found in OSS, generating from PDF for paper_id: {paper_id}")
+                    
+                    # 获取会话中的文件信息
+                    session = self.active_chats[chat_id]
+                    files = session.get("files", [])
+                    file_info = next((f for f in files if f.get("paper_id") == paper_id), None)
+                    
+                    if not file_info or not file_info.get("file_path"):
+                        logger.error(f"No PDF file found for paper_id: {paper_id}")
+                        self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                        return False
+                    
+                    # 使用pdf_service生成embeddings（会自动保存到本地和OSS）
+                    chunks, embeddings, _ = await pdf_service.generate_embeddings_for_paper(
+                        paper_id=paper_id,
+                        file_path=file_info["file_path"]
+                    )
+                    
+                    if not chunks or not embeddings:
+                        logger.error(f"Failed to generate embeddings for paper_id: {paper_id}")
+                        self.processing_files[chat_id] = {"processing": False, "file_name": filename}
+                        return False
+                else:
+                    # OSS获取成功，保存到本地
+                    with open(local_path, 'w', encoding='utf-8') as f:
+                        json.dump({"chunks": chunks, "embeddings": embeddings}, f)
+                    logger.info(f"Downloaded and cached embedding to {local_path}")
 
-            # 4. embedding 文件已缓存到本地，直接视为成功
+            # 5. embedding 文件已缓存到本地，更新处理状态
             files_count = len(self.active_chats[chat_id].get("files", []))
             self.processing_files[chat_id] = {
                 "processing": False,
