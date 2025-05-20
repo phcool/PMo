@@ -9,4 +9,5 @@ backend/logs/
 # 忽略所有PDF文件
 *.pdf
 # 忽略上传的PDF目录
-backend/uploads/pdfs/
+backend/cached_pdfs/
+backend/cached_embeddings/

@@ -3,8 +3,6 @@ import logging
 import json
 import time
 import uuid
-import asyncio
-import aiofiles
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 import re
 from pathlib import Path
@@ -13,7 +11,6 @@ from app.services.llm_service import llm_service
 from app.services.pdf_service import pdf_service
 from app.services.db_service import db_service
 from app.services.oss_service import oss_service
-# Paper model不再需要导入，因为我们简化了聊天功能，移除了特定研究论文的元数据处理
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +21,7 @@ class ChatService:
         """Initialize chat service"""
         # 设置配置
         self.max_context_messages = int(os.getenv("CHAT_MAX_CONTEXT", "10"))
-        self.max_chunks_per_query = int(os.getenv("CHAT_MAX_CHUNKS", "10"))
+        self.max_chunks_per_query = int(os.getenv("CHAT_MAX_CHUNKS", "30"))
         
         # 存储活跃会话
         self.active_chats = {}
