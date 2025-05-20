@@ -133,10 +133,17 @@ watch(() => chatSessionStore.state.chatId, (newChatId) => {
   }
 });
 
+// 监听论文处理状态变化
+watch(() => chatSessionStore.state.processingPaper, (isProcessing) => {
+  console.log('Processing state changed:', isProcessing);  // 添加日志
+  isPaperProcessing.value = isProcessing;
+}, { immediate: true });  // 添加 immediate 选项
+
 // 组件卸载前保留会话
 onBeforeUnmount(() => {
   // 不再结束聊天会话，而是将其保留在全局状态中
   console.log('Chat component unmounting, keeping global session:', chatId.value);
+  chatSessionStore.resetProcessingState();  // 确保组件卸载时重置状态
 });
 
 // 处理文件选择事件
@@ -171,11 +178,6 @@ const handleFilesUpdated = (files) => {
     }
   }
 };
-
-// 监听论文处理状态变化
-watch(() => chatSessionStore.state.processingPaper, (isProcessing) => {
-  isPaperProcessing.value = isProcessing;
-});
 
 // 输入框占位符
 const inputPlaceholder = computed(() => {

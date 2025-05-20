@@ -85,15 +85,19 @@ export default defineComponent({
               
               if (!processResponse.data.success) {
                 console.error('Failed to process embeddings:', processResponse.data.message);
+                chatSessionStore.resetProcessingState();  // 重置所有状态
+                toast.error('Failed to process paper embeddings. You can still chat with the paper.');
                 return;
               }
 
               console.log('Paper embeddings processing completed in background');
-              chatSessionStore.setProcessingPaper(false);
-              chatSessionStore.clearPendingPaperId();
+              chatSessionStore.resetProcessingState();  // 使用新的重置方法
+              toast.success('Paper processing completed successfully');
 
             } catch (error) {
               console.error('Error in background embeddings processing:', error);
+              chatSessionStore.resetProcessingState();  // 确保错误时也重置状态
+              toast.error('Error processing paper embeddings. You can still chat with the paper.');
             }
           }, 100);
           

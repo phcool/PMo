@@ -101,16 +101,27 @@ class ChatSessionStore {
   // 清除待处理论文ID
   clearPendingPaperId(): void {
     this.state.pendingPaperId = null;
+    this.state.processingPaper = false;  // 同时清除处理状态
   }
 
   // 设置论文处理状态
   setProcessingPaper(isProcessing: boolean): void {
     this.state.processingPaper = isProcessing;
+    if (!isProcessing) {
+      // 如果处理完成，同时清除待处理ID
+      this.state.pendingPaperId = null;
+    }
   }
 
   // 获取论文处理状态
   isProcessingPaper(): boolean {
     return this.state.processingPaper;
+  }
+
+  // 重置所有处理状态
+  resetProcessingState(): void {
+    this.state.pendingPaperId = null;
+    this.state.processingPaper = false;
   }
 }
 
