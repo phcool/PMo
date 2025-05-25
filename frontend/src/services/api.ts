@@ -21,7 +21,6 @@ interface ChatSessionResponse {
  */
 export interface IApiService {
   getRecentPapers(limit?: number, offset?: number): Promise<Paper[]>;
-  getPaperById(paperId: string): Promise<Paper>;
   countPapers(): Promise<number>;
   fetchPapers(categories?: string[], maxResults?: number): Promise<{ count: number }>;
   createChatSession(paperId?: string): Promise<ChatSessionResponse>;
@@ -40,7 +39,7 @@ class ApiService implements IApiService {
   constructor() {
     // Create axios instance
     this.api = axios.create({
-      baseURL: '',  // Use empty string as baseURL to avoid path issues
+      baseURL: '',  
       timeout: 30000,  // Default timeout increased to 30 seconds
       headers: {
         'Content-Type': 'application/json',
@@ -62,21 +61,6 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to get recent papers:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get paper by ID
-   * @param paperId The ID of the paper to retrieve
-   * @returns Promise with paper data
-   */
-  async getPaperById(paperId: string): Promise<Paper> {
-    try {
-      const response = await this.api.get(`/api/papers/${paperId}`);
-      return response.data;
-    } catch (error) {
-      console.error(`Failed to get paper ${paperId}:`, error);
       throw error;
     }
   }

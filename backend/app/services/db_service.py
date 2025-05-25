@@ -280,59 +280,6 @@ class DBService:
         
         return papers
     
-    async def get_random_papers_by_category(self, categories: List[str], limit: int = 30, offset: int = 0) -> List[PaperResponse]:
-        """
-        Get random papers from specified categories
-        
-        Args:
-            categories: List of category names
-            limit: Maximum number of papers to return
-            offset: Page offset
-            
-        Returns:
-            List of PaperResponse objects
-        """
-        papers = []
-        if not categories:
-            return papers
-            
-        async for db in get_async_db():
-            try:
-                stmt = (
-                    select(DBPaper)
-                    .join(DBPaper.categories)
-                    .options(
-                        selectinload(DBPaper.authors),
-                        selectinload(DBPaper.categories)
-                    )
-                    .where(DBCategory.name.in_(categories))
-                    .order_by(func.random())  # Use database's random function
-                    .offset(offset)  # Add offset support
-                    .limit(limit)
-                )
-                
-                result = await db.execute(stmt)
-                # Use distinct() to avoid repeated papers due to multiple category associations
-                db_papers = result.scalars().unique().all() 
-                
-                # Convert to API model
-                for db_paper in db_papers:
-                    papers.append(PaperResponse(
-                        paper_id=db_paper.paper_id,
-                        title=db_paper.title,
-                        authors=[author.name for author in db_paper.authors],
-                        abstract=db_paper.abstract,
-                        categories=[category.name for category in db_paper.categories],
-                        pdf_url=db_paper.pdf_url,
-                        published_date=db_paper.published_date,
-                        updated_date=db_paper.updated_date
-                    ))
-            except Exception as e:
-                logger.error(f"Error getting papers by category: {e}")
-                # Optionally return an empty list or rethrow the exception
-                return []
-        
-        return papers
     
     async def count_papers(self) -> int:
         """

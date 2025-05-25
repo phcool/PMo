@@ -31,7 +31,7 @@
               :key="category" 
               class="category-tag"
             >
-              {{ getCategoryLabel(category) }}
+              {{ category }}
             </span>
           </div>
         </div>
@@ -74,11 +74,10 @@
 
 <script lang="ts">
 import { defineComponent, ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import api from '../services/api'
-import { getCategoryLabel } from '../types/paper'
+import { useRouter } from 'vue-router'
+import { paperStore } from '../stores/paperStore'
+import type { Paper } from '../types/paper'
 import ChatButton from '../components/ChatButton.vue'
-import { useToast } from 'vue-toastification'
 
 export default defineComponent({
   name: 'PaperDetailView',
@@ -88,10 +87,8 @@ export default defineComponent({
   },
   
   setup() {
-    const route = useRoute();
     const router = useRouter();
-    const toast = useToast();
-    const paper = ref(null);
+    const paper = ref<Paper | null>(null);
     const isLoading = ref(true);
     const error = ref('');
     const showPdf = ref(false);
@@ -133,22 +130,17 @@ export default defineComponent({
     
     // Get paper details
     onMounted(async () => {
-      const paperId = route.params.id;
-      
-      if (!paperId) {
-        error.value = 'Paper ID is required';
+      // First try to get paper from store
+      const storedPaper = paperStore.getCurrentPaper();
+      if (storedPaper) {
+        paper.value = storedPaper;
         isLoading.value = false;
         return;
       }
       
-      try {
-        paper.value = await api.getPaperById(paperId);
-      } catch (e) {
-        console.error('Error fetching paper details:', e);
-        error.value = 'Failed to fetch paper details. Please try again later.';
-      } finally {
-        isLoading.value = false;
-      }
+      // If not in store, set error
+      error.value = 'Paper not found in store';
+      isLoading.value = false;
     });
     
     return {
@@ -159,7 +151,6 @@ export default defineComponent({
       formattedDate,
       togglePdfViewer,
       goBack,
-      getCategoryLabel,
       closePdf
     };
   }

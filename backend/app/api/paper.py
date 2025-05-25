@@ -6,7 +6,6 @@ import json
 
 from app.models.paper import Paper, PaperResponse
 from app.services.db_service import db_service
-from app.services.arxiv_service import ArxivService
 
 logger = logging.getLogger(__name__)
 

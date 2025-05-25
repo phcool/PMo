@@ -2,51 +2,15 @@
   <div class="home">
     <div class="hero-section">
       <!-- Search Box -->
-      <div class="search-container">
-        <div class="search-form">
-          <input 
-            v-model="searchQuery" 
-            class="search-input" 
-            placeholder="Search papers..." 
-            @keyup.enter="performSearch(false)" 
-            aria-label="Search papers"
-          />
-          <button @click="performSearch(false)" class="search-button" :disabled="isSearching || !searchQuery.trim()">
-            <font-awesome-icon v-if="!isSearching" icon="search" />
-            <span v-else>Searching...</span>
-          </button>
-        </div>
-      </div>
-      
-      <div class="paper-count" v-if="paperCount !== null">
-        <p>Currently indexed <strong>{{ paperCount }}</strong> papers</p>
-      </div>
+      <SearchBox
+        v-model="searchQuery"
+        :is-loading="false"
+        @search="handleSearch"
+      />
     </div>
     
-    <!-- Search Results Section -->
-    <div v-if="showSearchResults" class="search-results-section">
-      <h2>Search Results</h2>
-      
-      <div v-if="isSearching" class="loading">
-        <p>Searching papers...</p>
-      </div>
-      
-      <div v-else-if="searchResults.length === 0" class="no-results">
-        <p>No results found for "{{ searchQuery }}"</p>
-        <button @click="resetSearch" class="secondary-button">Show Recent Papers</button>
-      </div>
-      
-      <div v-else class="papers-list">
-        <PaperCard v-for="paper in searchResults" :key="paper.paper_id" :paper="paper" />
-      </div>
-      
-      <div class="search-actions">
-        <button @click="resetSearch" class="secondary-button">Back to Recent Papers</button>
-      </div>
-    </div>
-    
-    <!-- Papers Sections Container (shown when not searching) -->
-    <div v-if="!showSearchResults" class="papers-container">
+    <!-- Papers Sections Container -->
+    <div class="papers-container">
       <!-- Recent Papers List -->
       <div class="recent-papers">
         <h2>Recent Papers</h2>
@@ -56,7 +20,7 @@
         </div>
         
         <div v-else-if="papers.length === 0" class="no-papers">
-          <p>No papers found. Our system will automatically fetch new papers periodically.</p>
+          <p>No papers found</p>
         </div>
         
         <div v-else class="papers-list">
@@ -80,21 +44,22 @@
 </template>
 
 <script>
-import { defineComponent, ref, onMounted, computed, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { defineComponent, ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import PaperCard from '../components/PaperCard.vue'
+import SearchBox from '../components/SearchBox.vue'
 import api from '../services/api'
 
 export default defineComponent({
   name: 'HomeView',
   
   components: {
-    PaperCard
+    PaperCard,
+    SearchBox
   },
   
   setup() {
     const router = useRouter();
-    const route = useRoute();
     
     // --- Define refs first ---
     const papers = ref([]);
@@ -105,51 +70,13 @@ export default defineComponent({
     const limit = ref(10);
     const hasMorePapers = ref(true);
     const searchQuery = ref('');
-    const searchResults = ref([]);
-    const isSearching = ref(false);
-    const showSearchResults = computed(() => searchResults.value.length > 0 || (searchQuery.value && isSearching.value));
 
-    // --- Define methods that might be called by watchers or onMount ---
-    // Perform search
-    const performSearch = async (isRouteTriggered = false) => {
-      const query = searchQuery.value.trim();
-      if (!query) return;
-      
-      console.log(`Performing search for: "${query}", Triggered by route: ${isRouteTriggered}`);
-      
-      try {
-        isSearching.value = true;
-        searchResults.value = [];
-        
-        const searchPayload = { 
-          query: query,
-          limit: 30 
-        }; 
-        const results = await api.searchPapers(searchPayload);
-        
-        // Adjust based on actual API response structure
-        searchResults.value = Array.isArray(results) ? results : (results?.results || []);
-        
-        if (!isRouteTriggered && route.query.q !== query) {
-          router.replace({ query: { ...route.query, q: query } }).catch(err => {});
-        }
-        
-      } catch (error) {
-        console.error('Error performing search:', error);
-        searchResults.value = [];
-      } finally {
-        isSearching.value = false;
-      }
-    };
-
-    // Reset search state
-    const resetSearch = () => {
-      searchQuery.value = '';
-      searchResults.value = [];
-      isSearching.value = false;
-      if (route.query.q) {
-        router.replace({ query: { ...route.query, q: undefined } }).catch(err => {});
-      }
+    // Handle search
+    const handleSearch = (query) => {
+      router.push({ 
+        name: 'search',
+        query: { q: query }
+      });
     };
 
     // --- Define other async loading methods ---
@@ -177,61 +104,8 @@ export default defineComponent({
       finally { isLoadingMoreRecent.value = false; }
     };
 
-    // --- Define Lifecycle Hooks and Watchers Last ---
-    // Watch for route query parameter changes
-    watch(
-      () => route.query.q,
-      (newQuery, oldQuery) => {
-        const newQueryStr = typeof newQuery === 'string' ? newQuery : '';
-        const oldQueryStr = typeof oldQuery === 'string' ? oldQuery : '';
-        
-        // Now performSearch is guaranteed to be initialized
-        if (newQueryStr && newQueryStr !== oldQueryStr && newQueryStr !== searchQuery.value) {
-          console.log('Route query changed, triggering search:', newQueryStr);
-          searchQuery.value = newQueryStr;
-          performSearch(true); // Call the already defined function
-        } else if (!newQueryStr && searchResults.value.length > 0) {
-          console.log('Route query removed, resetting search.');
-          resetSearch(); // Call the already defined function
-        }
-      },
-      { immediate: true } // Runs immediately, calling the defined performSearch/resetSearch
-    );
-    
-    // Save/Restore scroll position (can stay here or move earlier)
-    const saveScrollPosition = () => {
-      const path = router.currentRoute.value.fullPath;
-      sessionStorage.setItem(`scrollPos-${path}`, window.scrollY.toString());
-    };
-    const restoreScrollPosition = () => {
-      const path = router.currentRoute.value.fullPath;
-      const savedPosition = sessionStorage.getItem(`scrollPos-${path}`);
-      
-      if (savedPosition) {
-        requestAnimationFrame(() => {
-          window.scrollTo({
-            top: parseInt(savedPosition, 10),
-            behavior: 'instant'
-          });
-        });
-      }
-    };
-    const onActivated = () => { restoreScrollPosition(); };
-    const onDeactivated = () => { saveScrollPosition(); };
-
     onMounted(() => {
-      // Check initial route query on mount - performSearch is now defined
-      if (route.query.q && typeof route.query.q === 'string') {
-        if (searchQuery.value !== route.query.q) {
-           searchQuery.value = route.query.q;
-           performSearch(true); 
-        }
-      } else {
-        // Load initial data only if not searching
-        loadPapers();
-      }
-      // Restore scroll position on initial mount too, if needed
-      // restoreScrollPosition(); 
+      loadPapers();
     });
     
     // --- Return all refs and methods ---
@@ -239,19 +113,8 @@ export default defineComponent({
       papers, paperCount, isLoading, 
       isLoadingMoreRecent, loadMoreRecent,
       offset, limit, hasMorePapers,
-      searchQuery, searchResults, isSearching, showSearchResults,
-      performSearch, resetSearch,
-      onActivated, onDeactivated
+      searchQuery, handleSearch
     };
-  },
-  
-  // Component activation and deactivation hooks
-  activated() {
-    this.onActivated();
-  },
-  
-  deactivated() {
-    this.onDeactivated();
   }
 })
 </script>
@@ -316,10 +179,6 @@ export default defineComponent({
   cursor: not-allowed;
 }
 
-.paper-count {
-  font-size: 1rem;
-  color: #666;
-}
 
 .primary-button, .secondary-button {
   padding: 0.75rem 1.5rem;
@@ -404,33 +263,5 @@ export default defineComponent({
   display: flex;
   justify-content: center;
   margin-top: 1.5rem;
-}
-
-.search-results-section {
-  margin-bottom: 2rem;
-}
-
-.search-results-section h2 {
-  margin-bottom: 1rem;
-  color: #3f51b5;
-}
-
-.no-results {
-  text-align: center;
-  padding: 2rem;
-  background-color: #f5f5f5;
-  border-radius: 8px;
-  margin-bottom: 2rem;
-}
-
-.no-results p {
-  margin-bottom: 1rem;
-  color: #666;
-}
-
-.search-actions {
-  display: flex;
-  justify-content: center;
-  margin-top: 2rem;
 }
 </style> 

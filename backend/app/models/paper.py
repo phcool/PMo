@@ -15,19 +15,6 @@ class Paper(BaseModel):
     updated_date: Optional[datetime] = Field(None, description="Last updated date")
     embedding: Optional[List[float]] = Field(None, description="Vector embedding for search")
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "paper_id": "2105.12345",
-                "title": "Advances in Deep Learning",
-                "authors": ["John Smith", "Jane Doe"],
-                "abstract": "This paper presents advances in deep learning...",
-                "categories": ["cs.LG", "cs.AI"],
-                "pdf_url": "https://arxiv.org/pdf/2105.12345.pdf",
-                "published_date": "2023-05-20T00:00:00",
-                "updated_date": "2023-05-25T00:00:00"
-            }
-        }
 
 
 class PaperResponse(BaseModel):

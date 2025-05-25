@@ -17,7 +17,7 @@
         :key="category" 
         class="category-tag"
       >
-        {{ getCategoryLabel(category) }}
+        {{ category }}
       </span>
     </div>
     
@@ -27,9 +27,9 @@
       <a :href="paper.pdf_url" target="_blank" rel="noopener" class="action-button">
         Open PDF
       </a>
-      <router-link :to="{ name: 'paper-detail', params: { id: paper.paper_id } }" class="action-button">
+      <button @click="goToPaperDetail" class="action-button">
         Details
-      </router-link>
+      </button>
       <ChatButton :paper-id="paper.paper_id" />
     </div>
   </div>
@@ -37,10 +37,11 @@
 
 <script lang="ts">
 import { defineComponent, computed } from 'vue'
-import { getCategoryLabel } from '../types/paper'
 import api from '../services/api'
 import { useRouter } from 'vue-router'
 import { chatSessionStore } from '../stores/chatSession'
+import { paperStore } from '../stores/paperStore'
+import type { Paper } from '../types/paper'
 import { useToast } from 'vue-toastification'
 import ChatButton from './ChatButton.vue'
 
@@ -53,7 +54,7 @@ export default defineComponent({
   
   props: {
     paper: {
-      type: Object,
+      type: Object as () => Paper,
       required: true
     }
   },
@@ -118,8 +119,10 @@ export default defineComponent({
         // 在后台发起论文关联请求，不阻塞用户流程
         setTimeout(async () => {
           try {
-            await api.associatePaperWithChat(props.paper.paper_id, chatId);
-            console.log(`Successfully associated paper ${props.paper.paper_id} with chat ${chatId} in background`);
+            if (chatId) {
+              await api.associatePaperWithChat(props.paper.paper_id, chatId);
+              console.log(`Successfully associated paper ${props.paper.paper_id} with chat ${chatId} in background`);
+            }
           } catch (error) {
             console.error('Error associating paper with chat in background:', error);
           }
@@ -141,12 +144,18 @@ export default defineComponent({
       }
     };
     
+    const goToPaperDetail = () => {
+      // Store the paper object in the store before navigation
+      paperStore.setCurrentPaper(props.paper);
+      router.push({ name: 'paper-detail' });
+    };
+    
     return {
       authorText,
       formattedDate,
       truncatedAbstract,
-      getCategoryLabel,
-      startChatWithPaper
+      startChatWithPaper,
+      goToPaperDetail
     };
   }
 })
@@ -254,8 +263,10 @@ export default defineComponent({
   background-color: #f0f0f0;
   color: #333;
   border-radius: 4px;
+  border: none;
   text-decoration: none;
   font-size: 0.9rem;
+  cursor: pointer;
   transition: background-color 0.2s;
 }
 

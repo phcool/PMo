@@ -13,10 +13,18 @@ const routes: Array<RouteRecordRaw> = [
     }
   },
   {
-    path: '/paper/:id',
+    path: '/search',
+    name: 'search',
+    component: () => import('../views/SearchView.vue'),
+    meta: {
+      title: 'Search Papers - DL Paper Monitor',
+      requiresAuth: false
+    }
+  },
+  {
+    path: '/paper',
     name: 'paper-detail',
     component: () => import('../views/PaperDetailView.vue'),
-    props: true,
     meta: {
       title: 'Paper Details - DL Paper Monitor',
       requiresAuth: false
