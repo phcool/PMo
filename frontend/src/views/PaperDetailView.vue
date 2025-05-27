@@ -130,7 +130,7 @@ export default defineComponent({
     
     // Get paper details
     onMounted(async () => {
-      // First try to get paper from store
+      // try to get paper from store
       const storedPaper = paperStore.getCurrentPaper();
       if (storedPaper) {
         paper.value = storedPaper;

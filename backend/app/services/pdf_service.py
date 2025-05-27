@@ -19,7 +19,6 @@ import json
 from pathlib import Path
 
 from app.services.llm_service import llm_service
-from app.models.paper import Paper
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +27,19 @@ class PdfService:
         self.project_root = Path(__file__).parent.parent.parent
         self.pdf_dir = self.project_root / "data" / "cached_pdfs"
         self.embedding_dir = self.project_root / "data" / "cached_embeddings"
-        self.chunk_size = int(os.getenv("PDF_CHUNK_SIZE", "1000"))
-        self.chunk_overlap = int(os.getenv("PDF_CHUNK_OVERLAP", "200"))
-        self.top_k = int(os.getenv("PDF_TOP_K", "20"))
+        self.chunk_size = 1000
+        self.chunk_overlap = 200
+        self.top_k = 20
         self.downloading_processes=set()
         
         os.makedirs(self.pdf_dir, exist_ok=True)
         os.makedirs(self.embedding_dir, exist_ok=True)
     
     async def get_pdf(self,paper_id:str):
-        
-        
+        """
+        if the pdf file is not in the local directory, download it from arxiv website
+        return the pdf file path
+        """
         try:
             year_month = paper_id[:4]
             year = year_month[:2]
@@ -80,6 +81,10 @@ class PdfService:
             self.downloading_processes.discard(paper_id)
     
     async def extract_text_from_pdf(self, file_path: str) -> str:
+        """
+        extract text from pdf file
+        return the text content
+        """
         try:
             loop = asyncio.get_event_loop()
             text_content = await loop.run_in_executor(None, self.extract_text_sync, file_path)
@@ -93,6 +98,9 @@ class PdfService:
             return ""
     
     def extract_text_sync(self, file_path: str) -> str:
+        """
+        async function to extract text from pdf file
+        """
         text_content = ""
         
         with open(file_path, 'rb') as file:
@@ -105,6 +113,10 @@ class PdfService:
         return text_content
     
     def clean_text(self, text: str) -> str:
+        """
+        clean the text content
+        return the cleaned text
+        """
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\n\d+\n', ' ', text)
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
@@ -112,6 +124,9 @@ class PdfService:
         return text.strip()
     
     def chunk_text(self, text: str) -> List[str]:
+        """
+        chunk the text content into many chunks
+        """
         if not text:
             return []
         
@@ -139,7 +154,10 @@ class PdfService:
         return chunks
     
     
-    async def update_chat_files(self, chat_id: str, file_path: str, paper_id: str, paper_title: Optional[str] = None) -> Dict[str, Any]:
+    async def update_chat_files(self, user_id: str, file_path: str, paper_id: str, paper_title: Optional[str] = None) -> Dict[str, Any]:
+        """
+        update chat files for a user
+        """
         from app.services.chat_service import chat_service
         try:
             
@@ -149,7 +167,7 @@ class PdfService:
                     paper_title = paper_title[:97] + "..."
                 filename = f"{paper_title}"
             
-            existing_files = chat_service.active_chats[chat_id].get("files", [])
+            existing_files = chat_service.active_chats[user_id].get("files", [])
             for existing_file in existing_files:
                 if existing_file.get("paper_id") == paper_id:
                     return True
@@ -162,17 +180,20 @@ class PdfService:
                 "added_at": datetime.now().isoformat()
             }
             
-            chat_service.active_chats[chat_id]["files"].append(file_info)
+            chat_service.active_chats[user_id]["files"].append(file_info)
             
             return True
             
         except Exception as e:
-            logger.error(f"Error updating chat files for session {chat_id}: {str(e)}")
+            logger.error(f"Error updating chat files for session {user_id}: {str(e)}")
             return False
 
-    async def query_similar_chunks(self, chat_id: str, query: str) -> List[str]:
+    async def query_similar_chunks(self, user_id: str, query: str) -> List[str]:
+        """
+        query similar chunks for a chat
+        """
         from app.services.chat_service import chat_service
-        session = chat_service.active_chats.get(chat_id)
+        session = chat_service.active_chats.get(user_id)
         files = session.get("files", [])
 
         all_chunks = []
@@ -204,7 +225,7 @@ class PdfService:
             all_embeddings.extend(embeddings)
 
         if not all_chunks or not all_embeddings:
-            logger.error(f"No valid embeddings found for any file in session {chat_id}")
+            logger.error(f"No valid embeddings found for any file in session {user_id}")
             return []
         
         query_embedding_list = await llm_service.get_embeddings(
@@ -223,10 +244,13 @@ class PdfService:
             similarities.append((i, similarity))
         similarities.sort(key=lambda x: x[1], reverse=True)
         top_chunks = [all_chunks[idx] for idx, _ in similarities[:self.top_k]]
-        logger.info(f"Retrieved {len(top_chunks)} relevant chunks for query in chat session: {chat_id} (from {len(files)} files)")
+        logger.info(f"Retrieved {len(top_chunks)} relevant chunks for query in chat session: {user_id} (from {len(files)} files)")
         return top_chunks
 
     async def generate_embeddings_for_paper(self, paper_id: str) -> bool:
+        """
+        generate embeddings for a paper and save to local directory
+        """
         try:
                 
             year_month = paper_id[:4]

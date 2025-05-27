@@ -38,7 +38,7 @@ export default defineComponent({
       );
     };
     
-    // Function to get or create user ID
+    // get or create user ID
     const getOrCreateUserId = async (): Promise<void> => {
       let userId = localStorage.getItem('X-User-ID');
       if (!userId) {

@@ -2,9 +2,8 @@ import os
 import sys
 import asyncio
 import logging
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
 
-# Add the parent directory to the path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logging.basicConfig(
@@ -13,12 +12,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("fetch_papers")
 
-# Import our services
 from app.services.arxiv_service import arxiv_service
 from app.services.db_service import db_service
 from app.services.vector_search_service import vector_search_service
 
-# Configuration
 BATCH_DAYS = 1
 DEFAULT_DAYS = 1
 BATCH_DELAY = 3
@@ -26,7 +23,6 @@ MAX_RESULTS_PER_BATCH = 10000
 
 
 async def fetch_papers_batch(start_date, end_date):
-    """Fetch a batch of papers for a specific date range"""
     logger.info(f"Fetching papers from {start_date} to {end_date}...")
     try:
         papers = await arxiv_service.fetch_papers(
@@ -44,11 +40,10 @@ async def fetch_papers(days=None):
     if days is None:
         days = DEFAULT_DAYS
         
-    start_time = datetime.now()
     today = date.today()
     earliest_date = today - timedelta(days=days)
     
-    logger.info(f"Starting paper fetch task, time: {start_time}")
+    logger.info(f"Starting paper fetch task")
     logger.info(f"Fetching papers from {earliest_date} to {today} ({days} days total)")
     logger.info(f"Using {BATCH_DAYS}-day batches with max {MAX_RESULTS_PER_BATCH} results per batch")
     
@@ -57,14 +52,11 @@ async def fetch_papers(days=None):
     batch_num = 1
     
     try:
-        # Calculate date ranges for each batch (working backwards from today)
         current_end_date = today
         
         while current_end_date > earliest_date:
-            # Calculate start date for this batch
             current_start_date = max(current_end_date - timedelta(days=BATCH_DAYS - 1), earliest_date)
             
-            # Fetch papers for this date range
             batch_papers = await fetch_papers_batch(
                 start_date=current_start_date,
                 end_date=current_end_date,
@@ -76,7 +68,6 @@ async def fetch_papers(days=None):
                 
             total_fetched += len(batch_papers)
                 
-            # Add papers to database
             added_db_ids = await db_service.add_papers(batch_papers)
             
             if not added_db_ids:
@@ -86,18 +77,14 @@ async def fetch_papers(days=None):
             total_added_db += len(added_db_ids)
             logger.info(f"Batch {batch_num}: Fetched {len(batch_papers)} papers, added {len(added_db_ids)} new papers to DB and vector search.")
             
-            # Move to the next batch (earlier dates)
             current_end_date = current_start_date - timedelta(days=1)
             batch_num += 1
             
-            # Wait between batches to avoid overwhelming arXiv API
             if current_end_date > earliest_date:
                 logger.info(f"Waiting {BATCH_DELAY} seconds before fetching the next batch...")
                 await asyncio.sleep(BATCH_DELAY)
             
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        logger.info(f"Fetch task completed in {duration:.2f} seconds. Total fetched: {total_fetched} papers, added to DB: {total_added_db} new papers.")
+        logger.info(f"Total fetched: {total_fetched} papers, added to DB: {total_added_db} new papers.")
         
     except Exception as e:
         logger.error(f"Error occurred during fetch_papers task: {e}", exc_info=True)

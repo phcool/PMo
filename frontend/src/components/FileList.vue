@@ -114,7 +114,7 @@ export default defineComponent({
     const isPdfLoading = ref(false)
     const currentFileName = ref('Document')
     
-    // Load session files
+    // Load user files
     const loadFiles = async () => {
       try {
         const response = await api.get_user_files()

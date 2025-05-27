@@ -1,7 +1,6 @@
 <template>
   <div class="home">
     <div class="hero-section">
-      <!-- Search Box -->
       <SearchBox
         v-model="searchQuery"
         :is-loading="false"
@@ -62,7 +61,7 @@ export default defineComponent({
   setup() {
     const router = useRouter();
     
-    // --- Define refs first ---
+    // define refs
     const papers = ref([]);
     const paperCount = ref(null);
     const isLoading = ref(false);
@@ -83,7 +82,6 @@ export default defineComponent({
       });
     };
 
-    // --- Define other async loading methods ---
     // Load recent papers
     const loadPapers = async () => {
       try {
@@ -112,7 +110,7 @@ export default defineComponent({
       loadPapers();
     });
     
-    // --- Return all refs and methods ---
+    // return all refs and methods
     return {
       papers, paperCount, isLoading, 
       isLoadingMoreRecent, loadMoreRecent,

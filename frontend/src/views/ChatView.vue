@@ -108,25 +108,24 @@ const inputField = ref(null);
 const showFilesList = ref(false);
 const showPdf = ref(false);
 
-// 检查是否正在处理论文
+// check if paper is processing
 const isPaperProcessing = ref(false);
 
-// 监听论文处理状态变化
+// watch paper processing state
 watch(() => chatSessionStore.state.processingPaper, (isProcessing) => {
   isPaperProcessing.value = isProcessing;
-}, { immediate: true });  // 添加 immediate 选项
+}, { immediate: true });
 
-// 组件卸载前保留会话
 onBeforeUnmount(() => {
-  chatSessionStore.resetProcessingState();  // 确保组件卸载时重置状态
+  chatSessionStore.resetProcessingState();  // ensure state is reset before component unmount
 });
 
-// 处理文件选择事件
+// handle file selected event
 const handleFileSelected = () => {
   showPdf.value = true;
 };
 
-// 处理 PDF 关闭事件
+// handle pdf closed event
 const handlePdfClosed = () => {
   showPdf.value = false
 };
@@ -136,7 +135,7 @@ const handleFilesUpdated = () => {
   showPdf.value = true;
 };
 
-// 输入框占位符
+// input placeholder
 const inputPlaceholder = computed(() => {
   return 'Type your message...';
 });
@@ -197,10 +196,10 @@ async function loadChatSession() {
 
 // Send message or execute search
 async function sendMessage() {
-  // 如果输入为空或正在加载中或正在处理文件，直接返回
+  // if input is empty or loading or processing, return
   if (!userInput.value.trim() || isLoading.value) return;
   
-  // 再次检查论文处理状态，确保无法在处理时发送
+  // check if paper is processing
   if (isPaperProcessing.value) {
     return;
   }
@@ -392,7 +391,7 @@ onBeforeUnmount(() => {
   document.body.classList.remove('pdf-active-page');
 });
 
-// 在 setup 里添加方法
+// add method in setup
 const handleFileListToggle = () => {
   if (showPdf.value && fileListRef.value && typeof fileListRef.value.closePdf === 'function') {
     fileListRef.value.closePdf();
@@ -711,7 +710,7 @@ button:disabled {
 </style>
 
 <style>
-/* 当PDF显示时，调整页面布局 */
+/* when pdf is active, adjust page layout */
 body.pdf-active-page {
   --app-max-width: none !important;
   --container-padding: 0 !important;

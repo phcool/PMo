@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 import logging
 
-from app.models.paper import PaperSearchRequest, PaperSearchResponse, PaperResponse
+from app.models.paper import PaperSearchRequest, PaperSearchResponse, Paper
 from app.services.db_service import db_service
 from app.services.vector_search_service import vector_search_service
 from app.services.llm_service import llm_service
@@ -44,7 +44,7 @@ async def search_papers(search_request: PaperSearchRequest):
         new_papers=[papers[idx] for idx in rerank]
         
         paper_responses = [
-            PaperResponse(
+            Paper(
                 paper_id=p.paper_id,
                 title=p.title,
                 authors=p.authors,

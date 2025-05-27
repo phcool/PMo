@@ -5,20 +5,22 @@ from typing import Dict, Any, Optional, List
 from openai import AsyncOpenAI, APIConnectionError, RateLimitError, APITimeoutError, APIError
 import dashscope
 from http import HTTPStatus
-import json
 
 logger = logging.getLogger(__name__)
 
 class LLMService:
     """
-    General Language Model Service Client
+    General LLM Service Client
     """
     
     def __init__(self):
         """Initialize LLM service"""
+        # api key and url
         self.api_key = os.getenv("LLM_API_KEY", "")
                  
         self.api_url = os.getenv("LLM_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+        # default models and settings
         
         self.conversation_model = os.getenv("LLM_CONVERSATION_MODEL", "qwen-3") 
 
@@ -30,10 +32,8 @@ class LLMService:
         self.rerank_topn=os.getenv("LLM_RERANK_TOPN",30)
         
         # Default parameters
-        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "4000")) 
-        self.conversation_temperature = float(os.getenv("LLM_CONVERSATION_TEMPERATURE", "0.8"))
-        self.request_timeout = int(os.getenv("LLM_REQUEST_TIMEOUT", "60")) 
-        self.retry_delay = int(os.getenv("LLM_RETRY_DELAY", "5")) 
+        self.max_tokens = 4000 
+        self.conversation_temperature = 0.8
 
         self.client = AsyncOpenAI(
             api_key=self.api_key,
@@ -51,12 +51,9 @@ class LLMService:
         thinking: Optional[bool] = False
     ) -> Optional[Any]:
         """
-        Call chat model API specifically for conversation purposes.
-
-        Return the response 
+        call chat model to generate response
         """
         
-        # Use provided parameters or fall back to defaults
         use_temperature = temperature if temperature is not None else self.conversation_temperature
         use_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
         
@@ -102,14 +99,13 @@ class LLMService:
         encoding_format: str = "float"
     ) -> Optional[List[List[float]]]:
         """
-        Call embedding model API to get vector embeddings for texts.
-        Returns List of embedding vectors [[float], [float], ...], or None if the API call fails.
+        call embedding model to get vector embeddings for texts
         """
         if not self.client:
-            logger.error("LLM client not initialized, cannot get embeddings")
+            logger.error("LLM client not initialized")
             return None
         
-        if not texts: # Handle empty input list
+        if not texts:
              return []
 
         use_dimensions = dimensions if dimensions is not None else self.default_embedding_dimensions 

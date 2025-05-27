@@ -3,23 +3,27 @@ import { reactive } from 'vue'
 interface SearchState {
   query: string
   results: any[]
-  isLoading: boolean
   hasSearched: boolean
+  sortBy: string
 }
 
 const searchState = reactive<SearchState>({
   query: '',
   results: [],
-  isLoading: false,
-  hasSearched: false
+  hasSearched: false,
+  sortBy: 'relevance'
 })
 
 export const searchStore = {
   // Getters
   getQuery: () => searchState.query,
   getResults: () => searchState.results,
-  getIsLoading: () => searchState.isLoading,
   getHasSearched: () => searchState.hasSearched,
+  getSortBy: () => searchState.sortBy,
+
+  setSortBy: (sortBy: string) => {
+    searchState.sortBy = sortBy
+  },
   
   // Actions
   setQuery: (query: string) => {
@@ -31,15 +35,10 @@ export const searchStore = {
     searchState.hasSearched = true
   },
   
-  setLoading: (loading: boolean) => {
-    searchState.isLoading = loading
-  },
-  
   clearSearch: () => {
     searchState.query = ''
     searchState.results = []
     searchState.hasSearched = false
-    searchState.isLoading = false
   },
   
   // Check if we have cached results for a query

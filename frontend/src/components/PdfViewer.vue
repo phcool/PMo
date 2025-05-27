@@ -14,7 +14,7 @@
       </div>
     </div>
     
-    <!-- Use object tag to embed PDF -->
+    <!--embed PDF -->
     <object 
       v-show="!loading"
       ref="pdfObject"
@@ -24,11 +24,6 @@
     >
       <div class="pdf-fallback">
         <p>Your browser cannot display PDF files directly.</p>
-        <p>You can <a :href="pdfUrl" target="_blank">download the PDF</a> or 
-          <a :href="'https://docs.google.com/viewer?url=' + encodeURIComponent(pdfUrl) + '&embedded=true'" target="_blank">
-            view it in Google Docs
-          </a>
-        </p>
       </div>
     </object>
   </div>

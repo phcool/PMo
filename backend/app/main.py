@@ -1,14 +1,9 @@
 import os
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, Response
 from dotenv import load_dotenv
 import logging
-import pathlib
 
-
-load_dotenv()
 
 
 from app.api import paper, search, chat, user
@@ -22,14 +17,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Create API sub-application
-api_app = FastAPI(
-    title="DL Paper Monitor API",
-)
+api_app = FastAPI()
 
 # Main application
-app = FastAPI(
-    title="DL Paper Monitor",
-)
+app = FastAPI()
 
 # Configure CORS
 app.add_middleware(

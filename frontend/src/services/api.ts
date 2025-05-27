@@ -1,10 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import type { Paper } from '@/types/paper';
 
-/**
- * User ID response interface
- */
-
 
 /**
  * API Service interface
@@ -33,7 +29,7 @@ class ApiService implements IApiService {
     // Create axios instance
     this.api = axios.create({
       baseURL: '',  
-      timeout: 30000,  // Default timeout increased to 30 seconds
+      timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -55,7 +51,7 @@ class ApiService implements IApiService {
   }
 
   /**
-   * Get recent papers with pagination
+   * Get recent papers 
    * @param limit Number of papers to retrieve
    * @param offset Pagination offset
    * @returns Promise with array of papers

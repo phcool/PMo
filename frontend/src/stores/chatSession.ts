@@ -11,21 +11,21 @@ class ChatSessionStore {
     processingPaper: false,
   });
 
-  // 设置论文处理状态
+  // set paper processing state
   setProcessingPaper(isProcessing: boolean): void {
     this.state.processingPaper = isProcessing;
   }
 
-  // 获取论文处理状态
+  // get paper processing state
   isProcessingPaper(): boolean {
     return this.state.processingPaper;
   }
 
-  // 重置所有处理状态
+  // reset all processing states
   resetProcessingState(): void {
     this.state.processingPaper = false;
   }
 }
 
-// 创建单例
+// create singleton
 export const chatSessionStore = new ChatSessionStore(); 

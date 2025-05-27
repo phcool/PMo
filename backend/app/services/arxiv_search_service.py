@@ -8,12 +8,19 @@ from app.services.db_service import db_service
 from app.services.vector_search_service import vector_search_service
 
 class ArxivSearchService:
+    """
+    handle search request from arxiv website 
+    if the paper is not in database, add it to the database and faiss index
+    """
     def __init__(self):
         self.base_url = "https://export.arxiv.org/api/query"
         self.queue = asyncio.Queue()
         self.consumer_task = asyncio.create_task(self.consumer())
 
     async def consumer(self):
+        """
+        background consumer to add searched papers to database and faiss index
+        """
         while True:
             paper_list = await self.queue.get()
             try:
@@ -25,6 +32,9 @@ class ArxivSearchService:
                 self.queue.task_done()
 
     async def search(self, query: str, max_results: int = 100) -> List[str]:
+        """
+        search papers from arxiv website and add to async queue
+        """
         try:
             params = {
                 "search_query": f"all:{query}",
@@ -37,7 +47,6 @@ class ArxivSearchService:
             response = requests.get(self.base_url, params=params)
             response.raise_for_status()
 
-            # Parse XML response
             root = ET.fromstring(response.text)
             namespace = {'atom': 'http://www.w3.org/2005/Atom'}
             entries = root.findall('atom:entry', namespace)
@@ -106,8 +115,7 @@ class ArxivSearchService:
                     categories=categories,
                     pdf_url=pdf_url,
                     published_date=published_date,
-                    updated_date=updated_date,
-                    embedding=None
+                    updated_date=updated_date
                 )
                 paper_list.append(paper)
 

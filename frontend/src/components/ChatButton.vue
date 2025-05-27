@@ -43,10 +43,10 @@ export default defineComponent({
 
           router.push({ name: 'chat'});
           
-          // 在后台处理向量化
+          // process embeddings in background
           setTimeout(async () => {
             try {
-              // 开始处理向量化
+              // process embeddings
               const embeddingResponse = await api.process_embeddings(props.paperId);
               
               if (!embeddingResponse) {

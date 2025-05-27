@@ -1,13 +1,8 @@
 *.log
 *.env
+*.pyc
 frontend/node_modules/
 frontend/dist/
-**/__pycache__/
 backend/data/
 backend/logs/
-*.pyc
-# 忽略所有PDF文件
-*.pdf
-# 忽略上传的PDF目录
-backend/cached_pdfs/
-backend/cached_embeddings/
+

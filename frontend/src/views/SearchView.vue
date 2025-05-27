@@ -13,7 +13,16 @@
     <!-- Search Results Section -->
     <div class="papers-container">
       <div class="recent-papers">
-        <h2>Search Results</h2>
+        <div class="sort-options-container">
+          <h2>Search Results</h2>
+          <div v-if="results.length > 0" class="sort-options">
+            <label for="sort-by">Sort by:</label>
+            <select id="sort-by" v-model="sortBy">
+              <option value="relevance">Relevance</option>
+              <option value="date_desc">Time</option>
+            </select>
+          </div>
+        </div>
         
         <div v-if="isLoading" class="loading">
           <p>Searching papers...</p>
@@ -24,7 +33,7 @@
         </div>
         
         <div v-else-if="results.length > 0" class="papers-list">
-          <PaperCard v-for="paper in results" :key="paper.paper_id" :paper="paper" />
+          <PaperCard v-for="paper in sortedResults" :key="paper.paper_id" :paper="paper" />
         </div>
         
         <!-- Initial instructions -->
@@ -53,7 +62,7 @@ export default {
       searchQuery: '',
       results: [],
       isLoading: false,
-      isReturningFromDetail: false
+      sortBy: searchStore.getSortBy()
     }
   },
   watch: {
@@ -63,15 +72,14 @@ export default {
         if (newQuery) {
           this.searchQuery = newQuery;
           
-          // Check if we're returning from a detail page and have cached results
+          // check if returning from a detail page and have cached results
           if (searchStore.hasCachedResults(newQuery)) {
-            // Use cached results instead of searching again
+            // use cached results instead of searching again
             this.results = searchStore.getResults();
-            this.isLoading = searchStore.getIsLoading();
             return;
           }
           
-          // Only perform search if query actually changed or we don't have cached results
+          // only perform search if query actually changed or we don't have cached results
           if (oldQuery !== newQuery || !searchStore.getHasSearched()) {
             this.performSearch();
           }
@@ -80,16 +88,37 @@ export default {
     }
   },
   mounted() {
-    // Initialize with store state if available
+    // initialize with store state if available
     if (searchStore.getHasSearched()) {
       this.searchQuery = searchStore.getQuery();
       this.results = searchStore.getResults();
-      this.isLoading = searchStore.getIsLoading();
+      this.sortBy = searchStore.getSortBy();
+    }
+  },
+  computed: {
+    sortedResults() {
+      if (!this.results) return [];
+      const resultsCopy = [...this.results];
+
+      if (this.sortBy === 'date_desc') {
+        resultsCopy.sort((a, b) => {
+          const dateA = a.published_date ? new Date(a.published_date) : null;
+          const dateB = b.published_date ? new Date(b.published_date) : null;
+
+          // Handle papers with invalid/missing dates by pushing them to the end
+          if (!dateA || isNaN(dateA.getTime())) return 1;
+          if (!dateB || isNaN(dateB.getTime())) return -1;
+
+          return dateB - dateA; 
+        });
+      }
+      searchStore.setSortBy(this.sortBy);
+      return resultsCopy;
     }
   },
   methods: {
     handleSearchBoxSearch(query) {
-      // Clear cache when user performs a new search from the search box
+      // clear cache when user performs a new search from the search box
       searchStore.clearSearch();
       this.searchQuery = query;
       this.performSearch();
@@ -101,9 +130,8 @@ export default {
       this.isLoading = true;
       this.results = [];
       
-      // Update store
+      // update store
       searchStore.setQuery(this.searchQuery.trim());
-      searchStore.setLoading(true);
       
       try {
         const data = await api.searchPapers({
@@ -123,7 +151,7 @@ export default {
                        (paper.categories ? [paper.categories] : [])
           }));
           
-          // Update store with results
+          // update store with results
           searchStore.setResults(this.results);
         } else {
           console.error('Invalid search results format', data);
@@ -140,7 +168,6 @@ export default {
         searchStore.setResults([]);
       } finally {
         this.isLoading = false;
-        searchStore.setLoading(false);
       }
     }
   }
@@ -187,6 +214,30 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sort-options-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.sort-options {
+  /* text-align: right; Align to the right of its container if needed */
+}
+
+.sort-options label {
+  margin-right: 0.5rem;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.sort-options select {
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 0.9rem;
 }
 
 .papers-list {

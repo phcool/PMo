@@ -196,7 +196,7 @@ async def process_paper_embeddings(
         )
     
     try:
-        success = await chat_service.process_paper_embeddings(paper_id)
+        success = await chat_service.process_embeddings(paper_id)
         
         if not success:
             return False
