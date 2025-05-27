@@ -49,6 +49,7 @@ import { useRouter } from 'vue-router'
 import PaperCard from '../components/PaperCard.vue'
 import SearchBox from '../components/SearchBox.vue'
 import api from '../services/api'
+import { searchStore } from '../stores/searchStore'
 
 export default defineComponent({
   name: 'HomeView',
@@ -73,6 +74,9 @@ export default defineComponent({
 
     // Handle search
     const handleSearch = (query) => {
+      // Clear previous search cache when starting a new search
+      searchStore.clearSearch();
+      
       router.push({ 
         name: 'search',
         query: { q: query }

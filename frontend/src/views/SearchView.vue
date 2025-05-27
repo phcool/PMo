@@ -6,7 +6,7 @@
       <SearchBox
         v-model="searchQuery"
         :is-loading="isLoading"
-        @search="performSearch"
+        @search="handleSearchBoxSearch"
       />
     </div>
     
@@ -40,6 +40,7 @@
 import api from '../services/api'
 import SearchBox from '../components/SearchBox.vue'
 import PaperCard from '../components/PaperCard.vue'
+import { searchStore } from '../stores/searchStore'
 
 export default {
   name: 'SearchView',
@@ -51,26 +52,58 @@ export default {
     return {
       searchQuery: '',
       results: [],
-      isLoading: false
+      isLoading: false,
+      isReturningFromDetail: false
     }
   },
   watch: {
     '$route.query.q': {
       immediate: true,
-      handler(newQuery) {
+      handler(newQuery, oldQuery) {
         if (newQuery) {
           this.searchQuery = newQuery;
-          this.performSearch();
+          
+          // Check if we're returning from a detail page and have cached results
+          if (searchStore.hasCachedResults(newQuery)) {
+            // Use cached results instead of searching again
+            this.results = searchStore.getResults();
+            this.isLoading = searchStore.getIsLoading();
+            return;
+          }
+          
+          // Only perform search if query actually changed or we don't have cached results
+          if (oldQuery !== newQuery || !searchStore.getHasSearched()) {
+            this.performSearch();
+          }
         }
       }
     }
   },
+  mounted() {
+    // Initialize with store state if available
+    if (searchStore.getHasSearched()) {
+      this.searchQuery = searchStore.getQuery();
+      this.results = searchStore.getResults();
+      this.isLoading = searchStore.getIsLoading();
+    }
+  },
   methods: {
+    handleSearchBoxSearch(query) {
+      // Clear cache when user performs a new search from the search box
+      searchStore.clearSearch();
+      this.searchQuery = query;
+      this.performSearch();
+    },
+    
     async performSearch() {
       if (!this.searchQuery.trim()) return;
       
       this.isLoading = true;
       this.results = [];
+      
+      // Update store
+      searchStore.setQuery(this.searchQuery.trim());
+      searchStore.setLoading(true);
       
       try {
         const data = await api.searchPapers({
@@ -89,9 +122,13 @@ export default {
             categories: Array.isArray(paper.categories) ? paper.categories : 
                        (paper.categories ? [paper.categories] : [])
           }));
+          
+          // Update store with results
+          searchStore.setResults(this.results);
         } else {
           console.error('Invalid search results format', data);
           this.results = [];
+          searchStore.setResults([]);
         }
         
         this.$router.replace({ 
@@ -100,8 +137,10 @@ export default {
       } catch (error) {
         console.error('Error searching papers:', error);
         this.results = [];
+        searchStore.setResults([]);
       } finally {
         this.isLoading = false;
+        searchStore.setLoading(false);
       }
     }
   }
