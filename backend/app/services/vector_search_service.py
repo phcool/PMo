@@ -22,7 +22,6 @@ class VectorSearchService:
         Initialize vector search service
         """
         self.embedding_dim = llm_service.default_embedding_dimensions
-        self.embedding_batch_size = int(os.getenv("API_EMBEDDING_BATCH_SIZE", "10")) 
              
         self.index = None
         self.paper_ids = []
@@ -33,7 +32,7 @@ class VectorSearchService:
         self.index_path = str(self.data_dir / "paper_index.faiss")
         self.paper_ids_path = str(self.data_dir / "paper_ids.pkl")
         
-        logger.info(f"VectorSearchService initializing with {self.embedding_dim}-dim embeddings  Batch Size: {self.embedding_batch_size})")
+        logger.info(f"VectorSearchService initializing with {self.embedding_dim}-dim embeddings")
         logger.info(f"Index file path: {self.index_path}")
         
         # Load existing index or create a new one (remains mostly the same)
@@ -123,61 +122,24 @@ class VectorSearchService:
             return
 
         total_texts_to_process = len(texts_to_embed)
-        logger.info(f"Preparing to get embeddings for {total_texts_to_process} new papers, batch size: {self.embedding_batch_size}...")
+        logger.info(f"Preparing to get embeddings for {total_texts_to_process} new papers")
         
-        all_new_embeddings = []
-        successfully_embedded_ids = []
-        batches_processed = 0
-        failed_batches = 0
+        all_embeddings = await self._embed_texts(texts_to_embed)
 
-        # 2. Get embeddings in batches
-        for i in range(0, total_texts_to_process, self.embedding_batch_size):
-            batch_texts = texts_to_embed[i : i + self.embedding_batch_size]
-            batch_ids = paper_ids_for_texts[i : i + self.embedding_batch_size]
-            batches_processed += 1
-            
-            logger.debug(f"  Processing batch {batches_processed}, count: {len(batch_texts)}")
-            batch_embeddings = await self._embed_texts(batch_texts)
-            
-            if batch_embeddings is not None and len(batch_embeddings) == len(batch_texts):
-                 all_new_embeddings.extend(batch_embeddings)
-                 successfully_embedded_ids.extend(batch_ids)
-                 logger.debug(f"    Batch {batches_processed} embeddings successful.")
-                 # Optional: Add a small delay between batches if rate limits are hit
-                 await asyncio.sleep(0.2) 
-            else:
-                 failed_batches += 1
-                 logger.error(f"    Batch {batches_processed} (IDs: {batch_ids}) embedding failed or returned mismatched count. Skipping this batch.")
-                 # Decide if you want to stop the whole process on one batch failure
-                 # continue 
+        if not all_embeddings:
+            logger.error("All embedding requests for all batches failed. Unable to add new papers to index.")
+            return
 
-        if not all_new_embeddings:
-             logger.error("All embedding requests for all batches failed. Unable to add new papers to index.")
-             return
-             
-        logger.info(f"All batches processed. Successfully obtained {len(all_new_embeddings)}/{total_texts_to_process} embeddings. Failed batches: {failed_batches}")
+        embeddings_array = np.array(all_embeddings).astype('float32')
 
-        # 3. Add successfully embedded vectors and IDs to index
+
         try:
-             embeddings_array = np.array(all_new_embeddings).astype('float32')
-             if embeddings_array.ndim != 2 or embeddings_array.shape[0] == 0:
-                  logger.error("Final embedding array has incorrect format or is empty, cannot add to index.")
-                  return
-             if embeddings_array.shape[1] != self.embedding_dim:
-                  logger.error(f"Received embedding dimension ({embeddings_array.shape[1]}) does not match index dimension ({self.embedding_dim}). Aborting add.")
-                  return
-                  
-             self.index.add(embeddings_array)
-             self.paper_ids.extend(successfully_embedded_ids)
-             
-             # 4. Save the updated index
-             self._save_index()
-             logger.info(f"Successfully added {len(successfully_embedded_ids)} new papers to index. Total: {self.index.ntotal}. Failed batches: {failed_batches}.")
+            self.index.add(embeddings_array)
+            self.paper_ids.extend(paper_ids_for_texts)
+            self._save_index()
              
         except Exception as e:
             logger.error(f"Error adding vectors to index or saving: {e}")
-            # Rollback might be complex here, as index might be partially updated
-            # Best approach might be logging and manual check/rebuild if needed
             raise
     
     async def vector_search(self, query: str, k: int = 30) -> List[str]:
@@ -188,10 +150,6 @@ class VectorSearchService:
             if self.index is None or self.index.ntotal == 0:
                 logger.warning("Attempted to search an empty or uninitialized index")
                 return []
-            
-
-
-
             
             # 1. Get query embedding (for a single query text)
             query_embedding_list = await self._embed_texts([query])
@@ -245,8 +203,4 @@ class VectorSearchService:
             result_ids = set().union(*results)
             return result_ids
                 
-
-            
-
-# Create global instance
 vector_search_service = VectorSearchService() 

@@ -173,7 +173,7 @@ class DBService:
                     db_paper = result.scalars().first()
                     
                     if not db_paper:
-                        logger.warning(f"Paper with ID {paper_id} not found in database")
+                        logger.info(f"Paper with ID {paper_id} not found in database")
                         return None
                     
                     # Convert to API model

@@ -24,6 +24,7 @@ class LLMService:
 
         self.default_embedding_model = os.getenv("LLM_EMBEDDING_MODEL", "text-embedding-v3") 
         self.default_embedding_dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
+        self.BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
 
         self.rerank_model=os.getenv("LLM_RERANK_MODEL","gte-rerank-v2")
         self.rerank_topn=os.getenv("LLM_RERANK_TOPN",30)
@@ -116,20 +117,29 @@ class LLMService:
         try:
             logger.debug(f"Sending embedding request to LLM, Target Dimensions: {use_dimensions}, Num Texts: {len(texts)}")
             
-            response = await self.client.embeddings.create(
-                model=self.default_embedding_model,
-                input=texts,
-                encoding_format=encoding_format
-            )
-            logger.debug(f"Received LLM embedding response. Usage: {response.usage}")
+            all_embeddings = []
             
-            if response.data:
-                sorted_embeddings = sorted(response.data, key=lambda e: e.index)
-                return [item.embedding for item in sorted_embeddings]
-            else:
-                 logger.warning(f"LLM embedding response did not contain data")
-                 return None
+            for i in range(0, len(texts), self.BATCH_SIZE):
+                logger.info(f"Sending batch {i//self.BATCH_SIZE + 1}/{len(texts)//self.BATCH_SIZE + 1} to LLM")
+                batch_texts = texts[i:i + self.BATCH_SIZE]
+                
+                batch_response = await self.client.embeddings.create(
+                    model=self.default_embedding_model,
+                    input=batch_texts,
+                    encoding_format=encoding_format
+                )
+                
+                if batch_response.data:
+                    batch_embeddings = [item.embedding for item in batch_response.data]
+                    all_embeddings.extend(batch_embeddings)
+                else:
+                    logger.warning(f"Batch {i//self.BATCH_SIZE + 1} embedding response did not contain data")
+                    return None
+                
+                if i + self.BATCH_SIZE < len(texts):
+                    await asyncio.sleep(0.1)
             
+            return all_embeddings
             
 
         except RateLimitError as e:

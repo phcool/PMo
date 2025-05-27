@@ -11,7 +11,7 @@ import pathlib
 load_dotenv()
 
 
-from app.api import paper, search, chat
+from app.api import paper, search, chat, user
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +44,7 @@ app.add_middleware(
 api_app.include_router(paper.router, prefix="/papers", tags=["papers"])
 api_app.include_router(search.router, prefix="/search", tags=["search"])
 api_app.include_router(chat.router, prefix="/chat", tags=["chat"])
+api_app.include_router(user.router, prefix="/user", tags=["user"])
 
 # Mount API sub-application to main application
 app.mount("/api", api_app)

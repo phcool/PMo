@@ -1,5 +1,5 @@
 <template>
-  <button @click="startChatWithPaper" class="action-button chat-button">
+  <button @click="attachPaper" class="action-button chat-button">
     Chat
   </button>
 </template>
@@ -8,10 +8,8 @@
 import { defineComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { chatSessionStore } from '../stores/chatSession'
-import { useToast } from 'vue-toastification'
-import axios from 'axios'
+import api from '../services/api'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 export default defineComponent({
   name: 'ChatButton',
@@ -25,106 +23,57 @@ export default defineComponent({
   
   setup(props) {
     const router = useRouter();
-    const toast = useToast();
     
     // Start chat with paper
-    const startChatWithPaper = async () => {
+    const attachPaper = async () => {
       try {
-        // 显示加载提示
-        toast.info('Preparing chat session, please wait...');
-        
-        // 确保有活跃的聊天会话
-        if (!chatSessionStore.hasActiveSession()) {
-          await chatSessionStore.createChatSession();
-        }
-        
-        const chatId = chatSessionStore.getChatId();
-        if (!chatId) {
-          throw new Error('Failed to create chat session');
-        }
-        
-        // 存储论文ID到会话中
-        chatSessionStore.setPendingPaperId(props.paperId);
-        
-        // 同步获取PDF并更新文件列表
+        chatSessionStore.setProcessingPaper(true);
+
+        const user_id = localStorage.getItem('X-User-ID');
+        if (!user_id) {
+          throw new Error('User ID not found');
+        }        
+
         try {
-          // 先同步获取PDF
-          const attachResponse = await axios.post(
-            `${API_BASE_URL}/api/chat/sessions/${chatId}/attach_paper`,
-            { paper_id: props.paperId }
-          );
+          const attachResponse = await api.attach_paper(props.paperId);
           
-          if (!attachResponse.data.success) {
-            throw new Error(attachResponse.data.message || 'Failed to attach paper to chat session');
+          if (!attachResponse) {
+            throw new Error('Failed to attach paper to chat session');
           }
-          
-          // 等待一小段时间确保文件列表已更新
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // 检查文件是否已添加到会话
-          const filesResponse = await axios.get<Array<{id: string, name: string}>>(
-            `${API_BASE_URL}/api/chat/sessions/${chatId}/files`
-          );
-          
-          if (filesResponse.data.length === 0) {
-            throw new Error('Paper PDF was not added to the chat session');
-          }
-          
-          // 文件已成功添加，现在可以跳转到聊天页面
-          toast.success('Paper loaded successfully, redirecting to chat...');
-          router.push({ name: 'chat', params: { id: chatId } });
+
+          router.push({ name: 'chat'});
           
           // 在后台处理向量化
           setTimeout(async () => {
             try {
               // 开始处理向量化
-              const processResponse = await axios.post(
-                `${API_BASE_URL}/api/chat/sessions/${chatId}/process_embeddings`,
-                { paper_id: props.paperId }
-              );
+              const embeddingResponse = await api.process_embeddings(props.paperId);
               
-              if (!processResponse.data.success) {
-                console.error('Failed to process embeddings:', processResponse.data.message);
-                chatSessionStore.resetProcessingState();  // 重置所有状态
-                toast.error('Failed to process paper embeddings. You can still chat with the paper.');
+              if (!embeddingResponse) {
+                console.error('Failed to process embeddings');
+                chatSessionStore.resetProcessingState(); 
                 return;
               }
 
-              console.log('Paper embeddings processing completed in background');
-              chatSessionStore.resetProcessingState();  // 使用新的重置方法
-              toast.success('Paper processing completed successfully');
+              chatSessionStore.resetProcessingState(); 
 
             } catch (error) {
-              console.error('Error in background embeddings processing:', error);
-              chatSessionStore.resetProcessingState();  // 确保错误时也重置状态
-              toast.error('Error processing paper embeddings. You can still chat with the paper.');
+              chatSessionStore.resetProcessingState(); 
             }
           }, 100);
           
         } catch (error) {
-          console.error('Error preparing chat session:', error);
-          toast.error('Failed to prepare chat session. Please try again.');
+          console.error('Error preparing chat', error);
           throw error;
         }
         
       } catch (error) {
         console.error('Error starting chat with paper:', error);
-        toast.error('Failed to start chat session. Please try again.');
-        
-        // 如果出错但会话已创建，仍然尝试跳转到聊天页面
-        if (chatSessionStore.hasActiveSession()) {
-          router.push({ 
-            name: 'chat',
-            params: { id: chatSessionStore.getChatId() } 
-          });
-        } else {
-          router.push({ name: 'chat' });
-        }
       }
     };
     
     return {
-      startChatWithPaper
+      attachPaper
     };
   }
 })

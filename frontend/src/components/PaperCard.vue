@@ -37,12 +37,9 @@
 
 <script lang="ts">
 import { defineComponent, computed } from 'vue'
-import api from '../services/api'
 import { useRouter } from 'vue-router'
-import { chatSessionStore } from '../stores/chatSession'
 import { paperStore } from '../stores/paperStore'
 import type { Paper } from '../types/paper'
-import { useToast } from 'vue-toastification'
 import ChatButton from './ChatButton.vue'
 
 export default defineComponent({
@@ -61,7 +58,6 @@ export default defineComponent({
   
   setup(props) {
     const router = useRouter();
-    const toast = useToast();
     
     // Format the authors list (show first 3 names, then "et al" if more)
     const authorText = computed(() => {
@@ -97,52 +93,6 @@ export default defineComponent({
       return abstract.substring(0, 250) + '...';
     });
     
-    // 开始与论文聊天
-    const startChatWithPaper = async () => {
-      try {
-        // 确保有活跃的聊天会话
-        if (!chatSessionStore.hasActiveSession()) {
-          await chatSessionStore.createChatSession();
-        }
-        
-        const chatId = chatSessionStore.getChatId();
-        
-        // 存储论文 ID 到会话中，以便在聊天页面中使用
-        chatSessionStore.setPendingPaperId(props.paper.paper_id);
-        
-        // 显示消息
-        toast.info(`正在跳转到聊天页面，论文将在后台处理...`);
-        
-        // 直接跳转到聊天页面，不等待论文处理
-        router.push({ name: 'chat', params: { id: chatId } });
-        
-        // 在后台发起论文关联请求，不阻塞用户流程
-        setTimeout(async () => {
-          try {
-            if (chatId) {
-              await api.associatePaperWithChat(props.paper.paper_id, chatId);
-              console.log(`Successfully associated paper ${props.paper.paper_id} with chat ${chatId} in background`);
-            }
-          } catch (error) {
-            console.error('Error associating paper with chat in background:', error);
-          }
-        }, 100);
-        
-      } catch (error) {
-        console.error('Error starting chat with paper:', error);
-        toast.error('无法创建聊天会话，请重试');
-        
-        // 出错时也尝试跳转到聊天页面
-        if (chatSessionStore.hasActiveSession()) {
-          router.push({ 
-            name: 'chat',
-            params: { id: chatSessionStore.getChatId() } 
-          });
-        } else {
-          router.push({ name: 'chat' });
-        }
-      }
-    };
     
     const goToPaperDetail = () => {
       // Store the paper object in the store before navigation
@@ -154,7 +104,6 @@ export default defineComponent({
       authorText,
       formattedDate,
       truncatedAbstract,
-      startChatWithPaper,
       goToPaperDetail
     };
   }

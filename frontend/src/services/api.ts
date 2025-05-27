@@ -1,20 +1,10 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import type { Paper } from '@/types/paper';
 
 /**
- * Chat response chunk interface
+ * User ID response interface
  */
-interface ChatResponseChunk {
-  content: string;
-  done: boolean;
-}
 
-/**
- * Chat session response interface
- */
-interface ChatSessionResponse {
-  chat_id: string;
-}
 
 /**
  * API Service interface
@@ -23,11 +13,14 @@ export interface IApiService {
   getRecentPapers(limit?: number, offset?: number): Promise<Paper[]>;
   countPapers(): Promise<number>;
   fetchPapers(categories?: string[], maxResults?: number): Promise<{ count: number }>;
-  createChatSession(paperId?: string): Promise<ChatSessionResponse>;
-  sendChatMessage(chatId: string, message: string, onChunk?: (chunk: string, isDone: boolean) => void): Promise<any>;
-  endChatSession(chatId: string): Promise<any>;
-  associatePaperWithChat(paperId: string, chatId: string): Promise<{success: boolean, message: string}>;
   searchPapers(payload: { query: string, limit?: number }): Promise<any>;
+  getUserId(): Promise<string>;
+  attach_paper(paperId: string): Promise<boolean>;
+  process_embeddings(paperId: string): Promise<boolean>;
+  get_user_files(): Promise<any[]>;
+  delete_file(paper_id: string): Promise<boolean>;
+  get_messages(): Promise<any[]>;
+  stream_chat(message: string): Promise<Response>;
 }
 
 /**
@@ -45,6 +38,20 @@ class ApiService implements IApiService {
         'Content-Type': 'application/json',
       },
     });
+
+    // Add a request interceptor to include user_id in headers
+    this.api.interceptors.request.use(
+      (config) => {
+        const userId = localStorage.getItem('X-User-ID');
+        if (userId) {
+          config.headers['X-User-ID'] = userId;
+        }
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
+    );
   }
 
   /**
@@ -101,147 +108,6 @@ class ApiService implements IApiService {
   }
   
   /**
-   * Create a new chat session
-   * @returns Promise with chat session data
-   */
-  async createChatSession(): Promise<ChatSessionResponse> {
-    try {
-      const response = await this.api.post('/api/chat/sessions', null, {
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Failed to create chat session:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * @param chatId Chat session ID
-   * @param file File to upload
-   * @returns Promise with upload result
-   */
-  
-  async sendChatMessage(
-    chatId: string,
-    message: string,
-    onChunk?: (chunk: string, isDone: boolean) => void
-  ): Promise<any> {
-    // If callback provided, use streaming
-    if (onChunk) {
-      try {
-        const response = await fetch(`/api/chat/sessions/${chatId}/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ message })
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error('Stream reader not available');
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        // Process stream data
-        while (true) {
-          const { value, done } = await reader.read();
-          
-          if (done) {
-            // Process final chunk
-            if (buffer) {
-              try {
-                const chunk = JSON.parse(buffer) as ChatResponseChunk;
-                onChunk(chunk.content, chunk.done);
-              } catch (e) {
-                console.error('Error parsing final chunk:', buffer);
-              }
-            }
-            break;
-          }
-
-          // Add data to buffer and process by line
-          buffer += decoder.decode(value, { stream: true });
-          
-          // Process data by line
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete last line
-          
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const chunk = JSON.parse(line) as ChatResponseChunk;
-                onChunk(chunk.content, chunk.done);
-                if (chunk.done) {
-                  return { success: true };
-                }
-              } catch (e) {
-                console.error('Error parsing chunk:', line);
-              }
-            }
-          }
-        }
-        
-        return { success: true };
-      } catch (error) {
-        console.error('Error in streaming chat:', error);
-        throw error;
-      }
-    } else {
-      // Non-streaming fallback
-      try {
-        const response = await this.api.post(`/api/chat/sessions/${chatId}/chat`, { message });
-        return response.data;
-      } catch (error) {
-        console.error('Failed to send chat message:', error);
-        throw error;
-      }
-    }
-  }
-  
-  /**
-   * End a chat session
-   * @param chatId Chat session ID
-   * @returns Promise with result
-   */
-  async endChatSession(chatId: string): Promise<any> {
-    try {
-      const response = await this.api.delete(`/api/chat/sessions/${chatId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Failed to end chat session:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Associate a paper with a chat session
-   * @param paperId Paper ID to associate
-   * @param chatId Chat session ID to associate with
-   * @returns Promise with result
-   */
-  async associatePaperWithChat(paperId: string, chatId: string): Promise<{success: boolean, message: string}> {
-    try {
-      const response = await this.api.post(`/api/chat/sessions/${chatId}/attach_paper`, 
-        { paper_id: paperId },
-        { 
-          timeout: 120000  // Extended timeout (2 minutes) for PDF processing and embeddings
-        }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Failed to associate paper with chat:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Search papers by query
    * @param payload { query, limit }
    * @returns Promise with search results
@@ -255,6 +121,93 @@ class ApiService implements IApiService {
       return response.data;
     } catch (error) {
       console.error('Failed to search papers:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a new user ID
+   * @returns Promise with user ID data
+   */
+  async getUserId(): Promise<string> {
+    try {
+      const response = await this.api.post('/api/user/get_id');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get user ID:', error);
+      throw error;
+    }
+  }
+
+  async attach_paper(paperId: string): Promise<boolean> {
+    try {
+      const response = await this.api.post(`/api/chat/attach_paper`, { paper_id: paperId });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to associate paper with chat:', error);
+      throw error;
+    } 
+  }
+
+  async process_embeddings(paperId: string): Promise<boolean> {
+    try {
+      const response = await this.api.post(`/api/chat/process_embeddings`, { paper_id: paperId });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to process embeddings:', error);
+      throw error;
+    }
+  }
+
+  async get_user_files(): Promise<any[]> {
+    try {
+      const response = await this.api.get(`/api/chat/files`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get user files:', error);
+      throw error;
+    }
+  }
+
+  async delete_file(paper_id: string): Promise<boolean> {
+    try {
+      const response = await this.api.delete(`/api/chat/files/delete/${paper_id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to delete file:', error);
+      throw error;
+    }
+  }
+
+  async get_messages(): Promise<any[]> {
+    try {
+      const response = await this.api.get(`/api/chat/messages`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get messages:', error);
+      throw error;
+    }
+  }
+
+  async stream_chat(message: string): Promise<Response> {
+    try {
+      const userId = localStorage.getItem('X-User-ID');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (userId) {
+        headers['X-User-ID'] = userId;
+      }
+
+      const response = await fetch(`/api/chat/stream_chat`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ message: message })
+      });
+      
+      return response; 
+    } catch (error) {
+      console.error('Failed to stream chat:', error);
       throw error;
     }
   }

@@ -31,10 +31,9 @@ const routes: Array<RouteRecordRaw> = [
     }
   },
   {
-    path: '/chat/:id?',
+    path: '/chat',
     name: 'chat',
     component: () => import('../views/ChatView.vue'),
-    props: true,
     meta: {
       title: 'Chat - DL Paper Monitor',
       requiresAuth: false

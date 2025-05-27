@@ -42,8 +42,8 @@
       <div class="pdf-files-list">
         <div 
           v-for="file in pdfFiles" 
-          :key="file.id"
-          :class="['pdf-file-item', { active: file.id === selectedFileId }]"
+          :key="file.paper_id"
+          :class="['pdf-file-item', { active: file.paper_id === selectedFileId }]"
           @click.stop="handleSelectFile(file)"
         >
           <div class="pdf-file-icon">
@@ -52,8 +52,7 @@
             </svg>
           </div>
           <div class="pdf-file-info">
-            <div class="pdf-file-name">{{ file.name }}</div>
-            <div class="pdf-file-size">{{ formatFileSize(file.size) }}</div>
+            <div class="pdf-file-name">{{ file.filename }}</div>
           </div>
           <button 
             class="pdf-file-delete" 
@@ -66,7 +65,7 @@
           </button>
         </div>
         <div v-if="pdfFiles.length === 0" class="text-center p-4 text-gray-500">
-          No files available in this session.
+          No files available.
         </div>
       </div>
     </div>
@@ -75,25 +74,22 @@
 
 <script lang="ts">
 import { defineComponent, ref, watch } from 'vue'
-import { useToast } from 'vue-toastification'
-import axios from 'axios'
+import api from '../services/api'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
-// 定义文件对象的接口
 interface ChatFile {
-  id: string;
-  name: string;
-  size: number;
-  paper_id?: string;
-  created_at?: string;
+  file_path: string;
+  filename: string;
+  paper_id: string;
+  paper_URL: string;
+  added_at: string;
 }
 
 export default defineComponent({
   name: 'FileList',
   
   props: {
-    chatId: {
+    user_id: {
       type: String,
       required: true
     },
@@ -111,7 +107,6 @@ export default defineComponent({
   ],
   
   setup(props, { emit }) {
-    const toast = useToast()
     const pdfFiles = ref<ChatFile[]>([])
     const showPdf = ref(false)
     const currentPdfUrl = ref<string | null>(null)
@@ -120,26 +115,22 @@ export default defineComponent({
     const currentFileName = ref('Document')
     
     // Load session files
-    const loadSessionFiles = async () => {
+    const loadFiles = async () => {
       try {
-        const response = await axios.get<ChatFile[]>(`${API_BASE_URL}/api/chat/sessions/${props.chatId}/files`)
-        pdfFiles.value = response.data
+        const response = await api.get_user_files()
+        pdfFiles.value = response
         emit('files-updated', pdfFiles.value)
-        console.log('Loaded files:', pdfFiles.value.length)
       } catch (error) {
-        console.error('Failed to load files:', error)
-        toast.error('Failed to load file list')
+        console.error('Failed to load files')
       }
     }
     
     // Select PDF file
     const handleSelectFile = (file: ChatFile) => {
-      selectedFileId.value = file.id
       isPdfLoading.value = true
-      currentFileName.value = file.name
+      currentFileName.value = file.filename
+      currentPdfUrl.value = file.paper_URL
       
-      const timestamp = Date.now()
-      currentPdfUrl.value = `${API_BASE_URL}/api/chat/files/${file.id}/view?no_download=true&t=${timestamp}`
       showPdf.value = true
       
       emit('file-selected', file)
@@ -151,22 +142,19 @@ export default defineComponent({
     
     // Delete file
     const deleteFile = async (file: ChatFile) => {
-      if (!confirm(`Are you sure you want to delete the file ${file.name}?`)) return
       
       try {
-        await axios.delete(`${API_BASE_URL}/api/chat/files/${file.id}`)
-        
-        pdfFiles.value = pdfFiles.value.filter(f => f.id !== file.id)
-        emit('files-updated', pdfFiles.value)
-        
-        if (selectedFileId.value === file.id) {
-          closePdf()
+        const result = await api.delete_file(file.paper_id)
+        if (result) {
+          pdfFiles.value = pdfFiles.value.filter(f => f.paper_id !== file.paper_id)
+          emit('files-updated', pdfFiles.value)
+          if (selectedFileId.value === file.paper_id) {
+            closePdf()
+          }
         }
         
-        toast.success(`File ${file.name} deleted successfully`)
       } catch (error) {
         console.error('Failed to delete file:', error)
-        toast.error('Failed to delete file. Please try again.')
       }
     }
     
@@ -188,29 +176,9 @@ export default defineComponent({
       currentFileName.value = 'Document'
       emit('pdf-closed')
     }
-    
-    // Format file size
-    const formatFileSize = (bytes: number): string => {
-      if (bytes === 0) return '0 Bytes'
-      
-      const k = 1024
-      const sizes = ['Bytes', 'KB', 'MB', 'GB']
-      const i = Math.floor(Math.log(bytes) / Math.log(k))
-      
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-    }
-    
-    // Watch PDF status, update body class when PDF is active
-    watch(() => showPdf.value && currentPdfUrl.value, (isPdfActive) => {
-      if (isPdfActive) {
-        document.body.classList.add('pdf-active-page')
-      } else {
-        document.body.classList.remove('pdf-active-page')
-      }
-    })
-    
-    // Initial load
-    loadSessionFiles()
+
+  
+    loadFiles()
     
     return {
       pdfFiles,
@@ -223,7 +191,6 @@ export default defineComponent({
       deleteFile,
       toggleFilesList,
       closePdf,
-      formatFileSize
     }
   }
 })

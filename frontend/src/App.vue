@@ -21,9 +21,9 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, onMounted, onBeforeUnmount } from 'vue'
+import { defineComponent, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { chatSessionStore } from './stores/chatSession'
+import apiService from './services/api'
 
 export default defineComponent({
   name: 'App',
@@ -31,7 +31,6 @@ export default defineComponent({
   setup() {
     const router = useRouter();
     
-    // 保存页面滚动位置
     const saveScrollPosition = (path: string): void => {
       sessionStorage.setItem(
         `scrollPos-${path}`,
@@ -39,47 +38,33 @@ export default defineComponent({
       );
     };
     
-    // 初始化全局聊天会话
-    const initGlobalChatSession = async (): Promise<void> => {
-      try {
-        // 只有当没有活动会话时才创建新会话
-        if (!chatSessionStore.hasActiveSession()) {
-          console.log('Initializing global chat session');
-          await chatSessionStore.createChatSession();
+    // Function to get or create user ID
+    const getOrCreateUserId = async (): Promise<void> => {
+      let userId = localStorage.getItem('X-User-ID');
+      if (!userId) {
+        try {
+          const response = await apiService.getUserId();
+          userId = response;
+          if (userId) {
+             localStorage.setItem('X-User-ID', userId);
+          }
+        } catch (error) {
+          console.error('Failed to get user ID:', error);
         }
-      } catch (error) {
-        console.error('Failed to initialize global chat session:', error);
       }
     };
-    
-    // 在窗口关闭前结束聊天会话
-    const endChatSessionBeforeUnload = async (): Promise<void> => {
-      if (chatSessionStore.hasActiveSession()) {
-        console.log('Ending global chat session before unload');
-        await chatSessionStore.endChatSession();
-      }
-    };
+
     
     onMounted(async () => {
-      // 添加导航钩子
       router.beforeEach((to, from) => {
         saveScrollPosition(from.fullPath);
       });
       
-      // 初始化全局聊天会话
-      await initGlobalChatSession();
-      
-      // 添加窗口关闭事件监听器
-      window.addEventListener('beforeunload', endChatSessionBeforeUnload);
+      await getOrCreateUserId();
+  
     });
     
-    onBeforeUnmount(() => {
-      // 在组件卸载前结束聊天会话
-      endChatSessionBeforeUnload();
-      
-      // 移除窗口关闭事件监听器
-      window.removeEventListener('beforeunload', endChatSessionBeforeUnload);
-    });
+
   }
 })
 </script>

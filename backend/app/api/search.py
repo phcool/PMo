@@ -1,5 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Depends, Body
-from typing import List, Optional
+from fastapi import APIRouter, HTTPException
 import logging
 
 from app.models.paper import PaperSearchRequest, PaperSearchResponse, PaperResponse

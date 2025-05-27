@@ -1,8 +1,7 @@
 <template>
   <div class="chat-page">
     <div v-if="initialLoading" class="loading">Loading...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else :class="['full-layout', {'pdf-layout': showPdf && currentPdfUrl}]">
+    <div v-else :class="['full-layout', {'pdf-layout': showPdf}]">
       <!-- Chat Area -->
       <div class="chat-view">
         <div class="chat-section">
@@ -85,24 +84,17 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import axios from 'axios';
-import { useToast } from 'vue-toastification';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
 import { chatSessionStore } from '../stores/chatSession';
 import FileList from '../components/FileList.vue';
+import api from '../services/api'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
-const route = useRoute();
-const router = useRouter();
-const toast = useToast();
-
-// Chat session data
-const chatId = ref(null);
+// Chat data
+const user_id = ref("");
 const messages = ref([]);
 const userInput = ref('');
 const isLoading = ref(false);  // Message loading status
@@ -111,72 +103,37 @@ const isTyping = ref(false);
 const currentTypingMessageId = ref(null); // Current typing message ID
 const messagesContainer = ref(null);
 const inputField = ref(null);
-const error = ref(null);
 
 // PDF file management
 const showFilesList = ref(false);
 const showPdf = ref(false);
-const currentPdfUrl = ref(null);
 
 // 检查是否正在处理论文
 const isPaperProcessing = ref(false);
 
-// 监听全局会话状态
-watch(() => chatSessionStore.state.chatId, (newChatId) => {
-  if (newChatId && newChatId !== chatId.value) {
-    chatId.value = newChatId;
-    
-    // 如果路由参数中的ID与全局ID不匹配，更新路由
-    if (route.params.id !== newChatId) {
-      router.push({ name: 'chat', params: { id: newChatId } });
-    }
-  }
-});
-
 // 监听论文处理状态变化
 watch(() => chatSessionStore.state.processingPaper, (isProcessing) => {
-  console.log('Processing state changed:', isProcessing);  // 添加日志
   isPaperProcessing.value = isProcessing;
 }, { immediate: true });  // 添加 immediate 选项
 
 // 组件卸载前保留会话
 onBeforeUnmount(() => {
-  // 不再结束聊天会话，而是将其保留在全局状态中
-  console.log('Chat component unmounting, keeping global session:', chatId.value);
   chatSessionStore.resetProcessingState();  // 确保组件卸载时重置状态
 });
 
 // 处理文件选择事件
-const handleFileSelected = (file) => {
-  console.log('File selected:', file);
+const handleFileSelected = () => {
   showPdf.value = true;
-  currentPdfUrl.value = `${API_BASE_URL}/api/chat/files/${file.id}/view?no_download=true&t=${Date.now()}`;
 };
 
 // 处理 PDF 关闭事件
 const handlePdfClosed = () => {
-  console.log('PDF viewer closed');
-  showPdf.value = false;
-  currentPdfUrl.value = null;
+  showPdf.value = false
 };
 
-// 处理文件列表更新事件
-const handleFilesUpdated = (files) => {
-  console.log('Files updated:', files);
-  // 如果有待处理的论文ID，检查是否在文件列表中
-  const pendingPaperId = chatSessionStore.getPendingPaperId();
-  if (pendingPaperId && files.length > 0) {
-    const matchingFile = files.find(file => 
-      file.name.includes(pendingPaperId) || 
-      (file.paper_id && file.paper_id === pendingPaperId)
-    );
-    
-    if (matchingFile) {
-      // 自动选中并显示文件
-      showFilesList.value = true;
-      handleFileSelected(matchingFile);
-    }
-  }
+const handleFilesUpdated = () => {
+  showFilesList.value = true;
+  showPdf.value = true;
 };
 
 // 输入框占位符
@@ -188,25 +145,9 @@ const inputPlaceholder = computed(() => {
 onMounted(async () => {
   try {
     initialLoading.value = true;
-    error.value = null;
     
-    // 使用全局会话或特定路由参数会话
-    if (route.params.id) {
-      // 如果URL中有会话ID，使用该ID
-      chatId.value = route.params.id;
-      // 更新全局会话状态
-      chatSessionStore.setChatId(chatId.value);
-    } else if (chatSessionStore.hasActiveSession()) {
-      // 如果全局已有会话，使用全局会话
-      chatId.value = chatSessionStore.getChatId();
-      // 更新URL
-      router.push({ name: 'chat', params: { id: chatId.value } });
-    } else {
-      // 如果全局没有会话，则创建新会话
-      await createChatSession();
-    }
-    
-    // 加载会话消息和文件
+    user_id.value = localStorage.getItem('X-User-ID');
+
     await loadChatSession();
     
     initialLoading.value = false;
@@ -214,15 +155,11 @@ onMounted(async () => {
     console.error('Initialization error:', err);
     if (err.response) {
       console.error('API response:', err.response.status, err.response.data);
-      error.value = `API error: ${err.response.status} - ${err.response.data.detail || 'Unknown error'}`;
     } else if (err.request) {
       console.error('No response received:', err.request);
-      error.value = 'No response received from server. Please check your network connection.';
     } else {
       console.error('Error message:', err.message);
-      error.value = `Error: ${err.message}`;
     }
-    toast.error('Failed to initialize chat session. Please refresh the page and try again.');
     initialLoading.value = false;
   }
   
@@ -237,53 +174,22 @@ onMounted(async () => {
   });
 });
 
-// Create new chat session
-async function createChatSession() {
-  try {
-    isLoading.value = true;
-    
-    // 使用全局会话服务创建会话
-    if (!chatSessionStore.hasActiveSession()) {
-      await chatSessionStore.createChatSession();
-    }
-    
-    // 从全局存储获取会话ID
-    chatId.value = chatSessionStore.getChatId();
-    
-    // 更新URL以包含会话ID
-    router.push({ name: 'chat', params: { id: chatId.value } });
-    console.log('Using global chat session:', chatId.value);
-  } catch (error) {
-    console.error('Session creation failed:', error);
-    toast.error('Failed to create chat session. Please try again.');
-    // Don't set global error, just show toast message
-  } finally {
-    isLoading.value = false;
-  }
-}
-
 // Load existing chat session
 async function loadChatSession() {
   try {
     isLoading.value = true;
-    const response = await axios.get(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/messages`);
+    const response = await api.get_messages();
     
-    // Get message list from API response structure
-    if (response.data.messages) {
-      messages.value = response.data.messages;
+    if (response) {
+      messages.value = response;
     } else {
       messages.value = [];
     }
     
-    console.log('Loaded chat history:', messages.value.length);
-    
-    // Scroll to bottom
     await nextTick();
     scrollToBottom();
   } catch (error) {
-    console.error('Failed to load session:', error);
-    toast.error('Failed to load chat history. Please try again.');
-    // Don't set global error, just show toast message
+    console.error('Failed to load session:');
   } finally {
     isLoading.value = false;
   }
@@ -296,7 +202,6 @@ async function sendMessage() {
   
   // 再次检查论文处理状态，确保无法在处理时发送
   if (isPaperProcessing.value) {
-    toast.warning('Paper is still being processed, please wait before sending a message');
     return;
   }
   
@@ -336,14 +241,12 @@ async function sendMessage() {
     await streamChatResponse(messageContent, assistantMessage);
   } catch (err) {
     console.error('Failed to send message:', err);
-    toast.error('Failed to send message. Please try again.');
-    
-    // Remove the last empty assistant message
     if (messages.value.length > 0 && 
         messages.value[messages.value.length - 1].role === 'assistant' && 
         messages.value[messages.value.length - 1].content === '') {
       messages.value.pop();
     }
+
   } finally {
     isLoading.value = false;
     isTyping.value = false;
@@ -355,13 +258,7 @@ async function sendMessage() {
 async function streamChatResponse(userMessage, assistantMessage) {
   try {
     // Send request
-    const response = await fetch(`${API_BASE_URL}/api/chat/sessions/${chatId.value}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ message: userMessage }),
-    });
+    const response = await api.stream_chat(userMessage);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -460,17 +357,6 @@ function formatMessage(content) {
   return DOMPurify.sanitize(html);
 }
 
-// Format file size
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
 // Scroll to bottom
 function scrollToBottom() {
   if (messagesContainer.value) {
@@ -482,7 +368,7 @@ function scrollToBottom() {
 }
 
 // Watch PDF status, update body class when PDF is active
-watch(() => showPdf.value && currentPdfUrl.value, (isPdfActive) => {
+watch(() => showPdf.value, (isPdfActive) => {
   if (isPdfActive) {
     document.body.classList.add('pdf-active-page');
   } else {
@@ -544,7 +430,7 @@ const fileListRef = ref(null);
   padding: 8px;
 }
 
-.loading, .error {
+.loading{
   text-align: center;
   padding: 2rem;
   background-color: white;
@@ -553,9 +439,6 @@ const fileListRef = ref(null);
   margin-bottom: 2rem;
 }
 
-.error {
-  color: #d32f2f;
-}
 
 .chat-view {
   display: flex;
@@ -780,7 +663,6 @@ const fileListRef = ref(null);
   to { transform: rotate(360deg); }
 }
 
-/* 禁用状态的样式 */
 .chat-input:disabled {
   background-color: #f8f9fa;
   color: #6c757d;
@@ -792,7 +674,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* 添加处理中输入框的样式 */
 .chat-input-wrapper.processing-mode {
   border-color: #ffb74d;
   background-color: #fff8e1;
