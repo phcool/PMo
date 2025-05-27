@@ -17,7 +17,7 @@ async def get_papers(
     offset: int = Query(0, ge=0)
 ):
     """
-    Get recent papers (with pagination)
+    Get recent papers from database
     """
     papers = await db_service.get_recent_papers(limit=limit, offset=offset)
     return papers
@@ -29,19 +29,18 @@ async def count_papers():
     Get the total number of papers in the database
     """
     count = await db_service.count_papers()
-    return {"count": count}
+    return count
 
 
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper(paper_id: str):
     """
-    Get paper by ID
+    Get paper by paper_id
     """
     paper = await db_service.get_paper_by_id(paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    
-    # Convert to response model
+        
     response = PaperResponse(
         paper_id=paper.paper_id,
         title=paper.title,

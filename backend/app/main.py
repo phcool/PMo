@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import logging
 import pathlib
 
-# Load environment variables
+
 load_dotenv()
 
 
@@ -34,13 +34,13 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, this should be replaced with specific origins
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include API routes - using correct prefixes
+# Include API routes
 api_app.include_router(paper.router, prefix="/papers", tags=["papers"])
 api_app.include_router(search.router, prefix="/search", tags=["search"])
 api_app.include_router(chat.router, prefix="/chat", tags=["chat"])

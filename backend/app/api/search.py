@@ -14,10 +14,10 @@ router = APIRouter()
 @router.post("/", response_model=PaperSearchResponse)
 async def search_papers(search_request: PaperSearchRequest):
     """
-    Search for papers using vector search
+    get results from local vector search and arxiv search
+    then rerank the results by LLM
     """
     try:
-        # Get paper IDs matching the query
         paper_ids = await vector_search_service.search(
             query=search_request.query,
             k=search_request.limit

@@ -12,14 +12,16 @@ router = APIRouter()
 
 
 class ChatResponseChunk:
+    """
+    Stream response chunk
+    """
     def __init__(self, content: str, done: bool = False):
         self.content = content
         self.done = done
     
     def to_json(self) -> str:
         """
-        将响应块转换为JSON字符串。
-        这必须与前端的预期格式匹配，前端期望有content字段。
+        change response chunk to json string
         """
         return json.dumps({
             "content": self.content,
@@ -27,13 +29,12 @@ class ChatResponseChunk:
         }, ensure_ascii=False)
 
 
-# Get chat messages
 @router.get("/messages")
 async def get_chat_messages(
     request: Request,
 ):
     """
-    Get messages from a chat session
+    Get user's history messages
     """
     user_id = request.headers.get('X-User-ID')
     if not user_id:
@@ -45,12 +46,15 @@ async def get_chat_messages(
     messages = chat_service.get_messages(user_id)
     return messages
 
-# Send message and get response
+
 @router.post("/stream_chat")
 async def chat(
     request: Request,
     message: str = Body(embed=True)
 ):
+    """
+    get stream chat response
+    """
     user_id = request.headers.get('X-User-ID')
     if not user_id:
         raise HTTPException(
@@ -59,10 +63,10 @@ async def chat(
         )
 
     if user_id not in chat_service.active_chats:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Chat session {user_id} not found"
-        )
+        chat_service.active_chats[user_id] = {
+            "messages": [],
+            "files": []
+        }
     
     async def stream_chat_response():
         try:
@@ -86,13 +90,12 @@ async def chat(
     )
 
 
-# Get session files
 @router.get("/files")
 async def get_user_files(
     request: Request
 ):
     """
-    Get files associated with user_id
+    Get user's attached files
     """
     user_id = request.headers.get('X-User-ID')
     if not user_id:
@@ -102,17 +105,16 @@ async def get_user_files(
         )
     
     if user_id not in chat_service.active_chats:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Chat session {user_id} not found"
-        )
+        chat_service.active_chats[user_id] = {
+            "messages": [],
+            "files": []
+        }
     
     chat_data = chat_service.active_chats[user_id]
     result = []
 
     if chat_data["files"]:
         for file_data in chat_data["files"]:
-            # Add to result list
             result.append({
                 "file_path": file_data["file_path"],
                 "filename": file_data["filename"],
@@ -123,12 +125,15 @@ async def get_user_files(
     
     return result
 
-# Delete a file
+
 @router.delete("/files/delete/{paper_id}")
 async def delete_file(
     request: Request,
     paper_id: str = Path()
 ):
+    """
+    Delete a file from user's attached files
+    """
     user_id = request.headers.get('X-User-ID')
     if not user_id:
         raise HTTPException(
@@ -146,14 +151,14 @@ async def delete_file(
     
     return False
 
-# Attach paper to chat session
+
 @router.post("/attach_paper")
 async def attach_paper(
     request: Request,
     paper_id: str = Body(embed=True)
 ):
     """
-    Download a paper PDF from arXiv and associate it with a chat session
+    Attach a paper to user, download the paper if not exists
     """
     user_id = request.headers.get('X-User-ID')
     if not user_id:
@@ -173,14 +178,14 @@ async def attach_paper(
         logger.error(f"Error attaching paper {paper_id} to chat session {user_id}: {str(e)}")
         return False
 
-# Process paper embeddings
+
 @router.post("/process_embeddings")
 async def process_paper_embeddings(
     request: Request,
     paper_id: str = Body(embed=True)
 ):
     """
-    Process embeddings for a paper that has already been attached to the chat session
+    Process embeddings for a paper
     """
 
     user_id = request.headers.get('X-User-ID')
@@ -191,7 +196,6 @@ async def process_paper_embeddings(
         )
     
     try:
-        # 只处理向量化
         success = await chat_service.process_paper_embeddings(paper_id)
         
         if not success:
@@ -200,5 +204,5 @@ async def process_paper_embeddings(
         return True
     
     except Exception as e:
-        logger.error(f"Error processing embeddings for paper {paper_id} in chat session {user_id}: {str(e)}")
+        logger.error(f"Error processing embeddings for paper {paper_id} for user {user_id}: {str(e)}")
         return False

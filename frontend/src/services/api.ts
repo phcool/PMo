@@ -79,7 +79,7 @@ class ApiService implements IApiService {
   async countPapers(): Promise<number> {
     try {
       const response = await this.api.get('/api/papers/count');
-      return response.data.count;
+      return response.data;
     } catch (error) {
       console.error('Failed to count papers:', error);
       throw error;

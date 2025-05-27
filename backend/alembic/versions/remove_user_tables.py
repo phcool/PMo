@@ -12,21 +12,21 @@ import logging
 
 # revision identifiers, used by Alembic.
 revision = 'remove_user_tables'
-down_revision = 'da9f1541b952'  # 指向最新的迁移
+down_revision = 'da9f1541b952'  # Points to the latest migration
 branch_labels = None
 depends_on = None
 
 logger = logging.getLogger(__name__)
 
 def upgrade() -> None:
-    # 获取数据库连接
+    # Get database connection
     connection = op.get_bind()
     inspector = inspect(connection)
     existing_tables = inspector.get_table_names()
     
     logger.info(f"Existing tables: {existing_tables}")
     
-    # 先删除依赖表
+    # Drop dependent tables first
     if 'user_paper_views' in existing_tables:
         logger.info("Dropping user_paper_views table...")
         op.execute('DROP TABLE IF EXISTS user_paper_views CASCADE')
@@ -35,20 +35,20 @@ def upgrade() -> None:
         logger.info("Dropping user_search_history table...")
         op.execute('DROP TABLE IF EXISTS user_search_history CASCADE')
     
-    # 最后删除主表
+    # Finally, drop the main table
     logger.info("Dropping user table...")
     op.execute('DROP TABLE IF EXISTS "user" CASCADE')
     
-    # 验证表是否被删除
+    # Verify if tables are deleted
     remaining_tables = inspector.get_table_names()
     logger.info(f"Remaining tables after migration: {remaining_tables}")
 
 def downgrade() -> None:
-    # 恢复 user 表（只包含 user_id 主键）
+    # Restore user table (only includes user_id primary key)
     op.create_table('user',
         sa.Column('user_id', sa.String(), primary_key=True)
     )
-    # 恢复 user_search_history 表
+    # Restore user_search_history table
     op.create_table('user_search_history',
         sa.Column('user_id', sa.String(), nullable=False),
         sa.Column('query', sa.String(), nullable=False),
@@ -56,7 +56,7 @@ def downgrade() -> None:
         sa.ForeignKeyConstraint(['user_id'], ['user.user_id'], ),
         sa.PrimaryKeyConstraint('user_id', 'query', 'timestamp')
     )
-    # 恢复 user_paper_views 表
+    # Restore user_paper_views table
     op.create_table('user_paper_views',
         sa.Column('user_id', sa.String(), nullable=False),
         sa.Column('paper_id', sa.String(), nullable=False),

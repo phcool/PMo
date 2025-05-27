@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Get database URL
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/dlmonitor")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:123456@localhost:5432/dlmonitor")
 # Convert to async URL
 ASYNC_DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+asyncpg://')
 
-# Create synchronous database engine (for tools like Alembic)
+# Create synchronous database engine(for alembic)
 engine = create_engine(DATABASE_URL)
 
 # Create asynchronous database engine (for application)
@@ -28,16 +28,8 @@ AsyncSessionLocal = sessionmaker(
     class_=AsyncSession
 )
 
-# Get Base class reference (already defined in models.db_models)
 from app.models.db_models import Base
 
-# Get database session (synchronous)
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Get database session (asynchronous)
 async def get_async_db():
