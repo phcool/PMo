@@ -80,10 +80,10 @@ async def fetch_papers(days=None):
                 
                 if not added_db_ids:
                     logger.info(f"No new papers in batch {batch_num} added to DB. All papers already exist.")
-                else:
-                    await vector_search_service.add_papers(batch_papers)
-                    total_added_db += len(added_db_ids)
-                    logger.info(f"Batch {batch_num}: Fetched {len(batch_papers)} papers, added {len(added_db_ids)} new papers to DB and vector search.")
+            
+                await vector_search_service.add_papers(batch_papers)
+                total_added_db += len(added_db_ids)
+                logger.info(f"Batch {batch_num}: Fetched {len(batch_papers)} papers, added {len(added_db_ids)} new papers to DB and vector search.")
             
             # Move to the next batch (earlier dates)
             current_end_date = current_start_date - timedelta(days=1)
