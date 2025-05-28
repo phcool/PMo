@@ -18,18 +18,18 @@ class LLMService:
         # api key and url
         self.api_key = os.getenv("LLM_API_KEY", "")
                  
-        self.api_url = os.getenv("LLM_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self.api_url = os.getenv("LLM_API_URL", "")
 
         # default models and settings
         
-        self.conversation_model = os.getenv("LLM_CONVERSATION_MODEL", "qwen-3") 
+        self.conversation_model = os.getenv("LLM_CONVERSATION_MODEL", "") 
 
-        self.default_embedding_model = os.getenv("LLM_EMBEDDING_MODEL", "text-embedding-v3") 
-        self.default_embedding_dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
-        self.BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
+        self.default_embedding_model = os.getenv("LLM_EMBEDDING_MODEL", "") 
+        self.default_embedding_dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", ""))
+        self.BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", ""))
 
-        self.rerank_model=os.getenv("LLM_RERANK_MODEL","gte-rerank-v2")
-        self.rerank_topn=os.getenv("LLM_RERANK_TOPN",30)
+        self.rerank_model=os.getenv("LLM_RERANK_MODEL","")
+        self.rerank_topn=int(os.getenv("LLM_RERANK_TOPN", ""))
         
         # Default parameters
         self.max_tokens = 4000 

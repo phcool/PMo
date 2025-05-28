@@ -35,8 +35,6 @@
         <div v-else-if="results.length > 0" class="papers-list">
           <PaperCard v-for="paper in sortedResults" :key="paper.paper_id" :paper="paper" />
         </div>
-        
-        <!-- Initial instructions -->
         <div v-else class="search-instructions">
           <p>Enter a search query to find relevant papers.</p>
         </div>
@@ -79,7 +77,7 @@ export default {
             return;
           }
           
-          // only perform search if query actually changed or we don't have cached results
+          // only perform search if query actually changed or don't have cached results
           if (oldQuery !== newQuery || !searchStore.getHasSearched()) {
             this.performSearch();
           }
@@ -224,7 +222,6 @@ export default {
 }
 
 .sort-options {
-  /* text-align: right; Align to the right of its container if needed */
 }
 
 .sort-options label {

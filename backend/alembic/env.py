@@ -1,7 +1,7 @@
-import asyncio
+
 import os
 from logging.config import fileConfig
-
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -12,7 +12,8 @@ from alembic import context
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.models.db_models import Base
-from app.db.database import DATABASE_URL
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Alembic Config object, which provides
 # access to the values within the .ini file in use.
