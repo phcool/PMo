@@ -103,7 +103,7 @@ cd backend
 touch .env
 vim .env
 
-DATABASE_URL=postgresql://postgres:password@localhost:5432/database
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/database
 LLM_API_KEY=your_api_key
 LLM_API_URL=your_api_url
 ```
@@ -115,6 +115,7 @@ pip install -r requirements.txt
 cd ..
 ```
 
+**3. database setup  :**
 config database , currently using v=16 ( use your own verison )
 ```bash
 "install postgresql"
@@ -134,12 +135,14 @@ cd backend
 sudo -i -u postgres
 psql
 CREATE DATABASE dlmonitor;
+ALTER ROLE postgres WITH PASSWORD 'your_password';
 
 \q
 exit
 
+apt install alembic
 alembic upgrade head
-
+cd ..
 ```
 
 **3. Frontend Setup:**
@@ -147,7 +150,53 @@ alembic upgrade head
 ```bash
 cd frontend
 
-# Install dependencies
-npm install
+apt install npm
+
+npm install 
+npm install vite
+npm run build
+
 cd ..
+```
+
+**4. Nginx config:**
+
+```bash
+sudo apt install nginx
+vim nginx.conf
+
+servername: change to your ip
+location: change to your dist path
+proxy_pass: change to your backend path
+
+./setup_nginx.sh
+```
+
+**5. run backend server :**
+```bash
+cd backend
+python run.py
+cd ..
+```
+
+- Your database is empty now, you may need to run a script to fetch data
+```bash
+cd backend/script
+python fetch_papers.py
+```
+- The .env file should have following data:
+
+```python
+# LLM chat config
+LLM_CONVERSATION_MODEL= chat_model
+LLM_CONVERSATION_TEMPERATURE= temperatrue
+
+# LLM re-rank config
+LLM_RERANK_MODEL= re-rank-model
+LLM_RERANK_TOPN= top-k
+
+# LLM Embedding config
+LLM_EMBEDDING_MODEL= embedding-model
+EMBEDDING_DIMENSIONS= embedding-dimension
+EMBEDDING_BATCH_SIZE = batch-size
 ```

@@ -1,21 +1,4 @@
-#!/bin/bash
-
-# Default Nginx configuration directory
 NGINX_CONF_DIR="/etc/nginx/conf.d"
-# Default frontend directory
-FRONTEND_DIR="/fronted/dist"
-
-# Check if script is run as root
-if [ "$(id -u)" -ne 0 ]; then
-  echo "This script must be run as root. Please use sudo." >&2
-  exit 1
-fi
-
-# Check if Nginx is installed
-if ! command -v nginx &> /dev/null; then
-    echo "Nginx could not be found. Please install Nginx first."
-    exit 1
-fi
 
 # Create a backup of the existing default configuration if it exists
 if [ -f "${NGINX_CONF_DIR}/default.conf" ]; then
@@ -56,5 +39,3 @@ else
 fi
 
 echo "Nginx setup complete. Your application should be accessible."
-echo "Frontend is served from ${FRONTEND_DIR}"
-echo "Backend API is proxied from /api/ to http://localhost:8000" 
