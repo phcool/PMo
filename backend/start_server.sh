@@ -1,6 +1,5 @@
 mkdir -p logs
 
-mkdir -p lo
 touch logs/output.log
 
 # redirect output to log file
